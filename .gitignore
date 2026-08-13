@@ -1,0 +1,34 @@
+# ─── DỮ LIỆU HỌC SINH — TUYỆT ĐỐI KHÔNG ĐƯA LÊN REPO ───────────────────────
+# data_final.csv chứa ngày sinh, trường và tỉnh của từng thí sinh. Giấy xác
+# nhận sử dụng dữ liệu của Viện Đào tạo số và Khảo thí (ĐHQGHN) cấm chuyển
+# giao cho bên thứ ba khi chưa có văn bản cho phép của Viện trưởng, và yêu cầu
+# loại bỏ các trường bán định danh này. Không gỡ dòng dưới đây.
+data/
+*.csv
+*.xlsx
+
+# ─── Tài liệu tham khảo có bản quyền ───────────────────────────────────────
+thamkhao/
+
+# ─── Hồ sơ nộp: có chữ ký, con dấu và thông tin liên hệ ─────────────────────
+submission/
+
+# ─── Ghi chú nội bộ (chiến lược phản biện, nhật ký quyết định) ──────────────
+notes/
+
+# ─── Bản thảo bài báo (phát hành qua nhà xuất bản, không qua repo) ──────────
+paper/*.docx
+paper/*.md
+
+# ─── Rác build ─────────────────────────────────────────────────────────────
+__pycache__/
+*.pyc
+.DS_Store
+.ipynb_checkpoints/
+node_modules/
+
+# ─── Cấu hình Claude Code cục bộ (symlink tới máy cá nhân) ──────────────────
+.claude/
+
+# Log chạy thô (có đường dẫn máy cá nhân)
+results/*.out

@@ -1,0 +1,35 @@
+{
+  "fitness_metric": "mae",
+  "best_params": {
+    "n_estimators": 777,
+    "max_depth": 8,
+    "learning_rate": 0.04042019480199942,
+    "subsample": 0.8874121959512856,
+    "colsample_bytree": 0.6670942438651035,
+    "min_child_weight": 11,
+    "reg_lambda": 4.031435880800746
+  },
+  "best_cv_scores": {
+    "rmse": 9.656182824135216,
+    "mae": 7.653528704289933,
+    "r2": 0.4934549290268227
+  },
+  "test": {
+    "rmse": 9.587492609474053,
+    "mae": 7.61513351987531,
+    "r2": 0.5090469275981202,
+    "fit_seconds": 6.9
+  },
+  "total_evals": 631,
+  "total_seconds": 11750.0,
+  "ga_config": {
+    "pop": 24,
+    "max_gens": 30,
+    "crossover": 0.9,
+    "mutation": 0.15,
+    "elitism": 2,
+    "cv_folds": 3,
+    "seed": 42,
+    "n_jobs": 5
+  }
+}

@@ -1,0 +1,48 @@
+{
+  "fitness_metric": "tail",
+  "best_params": {
+    "n_estimators": 800,
+    "max_depth": 7,
+    "learning_rate": 0.04523058580135722,
+    "subsample": 0.8221891244371748,
+    "colsample_bytree": 0.5989677221966614,
+    "min_child_weight": 9,
+    "reg_lambda": 0.09570249315568703
+  },
+  "best_cv_scores": {
+    "rmse": 9.65582153113185,
+    "mae": 7.665278283455375,
+    "r2": 0.4934866851808999,
+    "tail": 11.097670548373182
+  },
+  "test": {
+    "rmse": 9.60106264008695,
+    "mae": 7.635894406430837,
+    "r2": 0.5076561650015492,
+    "fit_seconds": 4.49
+  },
+  "total_evals": 593,
+  "total_seconds": 6814.5,
+  "ga_config": {
+    "pop": 24,
+    "max_gens": 30,
+    "crossover": 0.9,
+    "mutation": 0.15,
+    "elitism": 2,
+    "cv_folds": 3,
+    "seed": 42,
+    "n_jobs": -1,
+    "tail_alpha": 0.5,
+    "tail_bins": [
+      0,
+      50,
+      60,
+      70,
+      80,
+      90,
+      100,
+      110,
+      150
+    ]
+  }
+}

@@ -1,0 +1,50 @@
+{
+  "fitness_metric": "rmse",
+  "best_params": {
+    "n_estimators": 800,
+    "max_depth": 9,
+    "learning_rate": 0.027517734435878575,
+    "subsample": 0.9219773974987413,
+    "colsample_bytree": 0.5,
+    "min_child_weight": 11,
+    "reg_lambda": 0.0,
+    "weight_beta": 0.03339894424245102
+  },
+  "best_cv_scores": {
+    "rmse": 9.62899407382412,
+    "mae": 7.6417819960449185,
+    "r2": 0.4963039429452523,
+    "tail": 13.477023493905534
+  },
+  "test": {
+    "rmse": 9.585920558010468,
+    "mae": 7.611550741858705,
+    "r2": 0.5092079165556165,
+    "fit_seconds": 6.09
+  },
+  "total_evals": 645,
+  "total_seconds": 14567.7,
+  "ga_config": {
+    "pop": 24,
+    "max_gens": 30,
+    "crossover": 0.9,
+    "mutation": 0.15,
+    "elitism": 2,
+    "cv_folds": 3,
+    "seed": 42,
+    "n_jobs": 8,
+    "tail_alpha": 1.0,
+    "tail_bins": [
+      0,
+      50,
+      60,
+      70,
+      80,
+      90,
+      100,
+      110,
+      150
+    ],
+    "loss_weight": true
+  }
+}

@@ -1,0 +1,21 @@
+{
+  "strategy": "random",
+  "budget": 622,
+  "seed": 42,
+  "best_cv_rmse": 9.660760312085905,
+  "best_params": {
+    "n_estimators": 637,
+    "max_depth": 10,
+    "learning_rate": 0.028551719255104246,
+    "subsample": 0.9646211220030749,
+    "colsample_bytree": 0.5471707513198277,
+    "min_child_weight": 20,
+    "reg_lambda": 7.700907181588694
+  },
+  "test": {
+    "rmse": 9.62620762570037,
+    "mae": 7.648443991824118,
+    "r2": 0.5050739112308298
+  },
+  "total_seconds": 6433.5
+}

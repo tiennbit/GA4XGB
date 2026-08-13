@@ -1,0 +1,122 @@
+[2026-07-17 02:26:59] ===== BƯỚC 1: GA tail-weighted fitness (novelty chính) =====
+[2026-07-17 02:26:59] RUN: src/ga_xgb.py --metric tail --alpha 1.0
+  df["truong_freq"] = df["Trường"].map(freq).astype(float)
+  df["truong_chuyen"] = df["Trường"].str.contains("huyên", na=False).astype(int)
+[tail] Gen  1 | best fitness 13.5740 | gen mean 13.8326 | evals 46 | 354.2s
+[tail] Gen  2 | best fitness 13.4965 | gen mean 13.6594 | evals 66 | 546.8s
+[tail] Gen  3 | best fitness 13.4965 | gen mean 13.5913 | evals 81 | 684.0s
+[tail] Gen  4 | best fitness 13.4965 | gen mean 13.5999 | evals 100 | 844.4s
+[tail] Gen  5 | best fitness 13.4965 | gen mean 13.6211 | evals 119 | 1006.8s
+[tail] Gen  6 | best fitness 13.4663 | gen mean 13.5324 | evals 141 | 1204.5s
+[tail] Gen  7 | best fitness 13.4531 | gen mean 13.5349 | evals 162 | 1401.9s
+[tail] Gen  8 | best fitness 13.4295 | gen mean 13.4962 | evals 184 | 1610.8s
+[tail] Gen  9 | best fitness 13.4251 | gen mean 13.4895 | evals 205 | 1809.2s
+[tail] Gen 10 | best fitness 13.4251 | gen mean 13.4856 | evals 224 | 1988.8s
+[tail] Gen 11 | best fitness 13.4251 | gen mean 13.5012 | evals 246 | 2198.0s
+[tail] Gen 12 | best fitness 13.4223 | gen mean 13.4799 | evals 266 | 2396.9s
+[tail] Gen 13 | best fitness 13.4138 | gen mean 13.4881 | evals 287 | 2597.2s
+[tail] Gen 14 | best fitness 13.4138 | gen mean 13.4716 | evals 306 | 2791.1s
+[tail] Gen 15 | best fitness 13.4084 | gen mean 13.4901 | evals 328 | 3012.1s
+[tail] Gen 16 | best fitness 13.3975 | gen mean 13.4508 | evals 350 | 3232.9s
+[tail] Gen 17 | best fitness 13.3975 | gen mean 13.4782 | evals 371 | 3444.7s
+[tail] Gen 18 | best fitness 13.3929 | gen mean 13.4543 | evals 389 | 3626.3s
+[tail] Gen 19 | best fitness 13.3929 | gen mean 13.4486 | evals 406 | 3805.4s
+[tail] Gen 20 | best fitness 13.3929 | gen mean 13.4498 | evals 427 | 4019.6s
+[tail] Gen 21 | best fitness 13.3929 | gen mean 13.4475 | evals 446 | 4210.8s
+[tail] Gen 22 | best fitness 13.3929 | gen mean 13.4517 | evals 467 | 4435.8s
+[tail] Gen 23 | best fitness 13.3797 | gen mean 13.4612 | evals 489 | 4666.4s
+[tail] Gen 24 | best fitness 13.3797 | gen mean 13.4692 | evals 510 | 4901.3s
+[tail] Gen 25 | best fitness 13.3797 | gen mean 13.4325 | evals 530 | 5104.5s
+[tail] Gen 26 | best fitness 13.3797 | gen mean 13.4409 | evals 552 | 5344.0s
+[tail] Gen 27 | best fitness 13.3715 | gen mean 13.4478 | evals 574 | 5575.4s
+[tail] Gen 28 | best fitness 13.3715 | gen mean 13.4415 | evals 593 | 5767.1s
+[tail] Gen 29 | best fitness 13.3715 | gen mean 13.4510 | evals 614 | 5990.6s
+[tail] Gen 30 | best fitness 13.3715 | gen mean 13.4365 | evals 632 | 6175.5s
+
+[tail] Best params: {'n_estimators': 800, 'max_depth': 6, 'learning_rate': 0.09829428102973535, 'subsample': 0.8515591231711216, 'colsample_bytree': 0.6645938464881969, 'min_child_weight': 15, 'reg_lambda': 3.4446005966279967}
+[tail] Test: RMSE=9.6941 MAE=7.6938 R2=0.4981
+[2026-07-17 04:10:00] RUN: src/ga_xgb.py --metric tail --alpha 0.5
+  df["truong_freq"] = df["Trường"].map(freq).astype(float)
+  df["truong_chuyen"] = df["Trường"].str.contains("huyên", na=False).astype(int)
+[tail] Gen  1 | best fitness 11.1933 | gen mean 11.4021 | evals 46 | 338.7s
+[tail] Gen  2 | best fitness 11.1637 | gen mean 11.2760 | evals 66 | 514.1s
+[tail] Gen  3 | best fitness 11.1519 | gen mean 11.2129 | evals 83 | 687.1s
+[tail] Gen  4 | best fitness 11.1519 | gen mean 11.2009 | evals 103 | 867.0s
+[tail] Gen  5 | best fitness 11.1491 | gen mean 11.2015 | evals 120 | 1040.9s
+[tail] Gen  6 | best fitness 11.1370 | gen mean 11.1638 | evals 140 | 1271.5s
+[tail] Gen  7 | best fitness 11.1292 | gen mean 11.1704 | evals 161 | 1519.7s
+[tail] Gen  8 | best fitness 11.1292 | gen mean 11.1528 | evals 183 | 1787.8s
+[tail] Gen  9 | best fitness 11.1244 | gen mean 11.1480 | evals 204 | 2046.1s
+[tail] Gen 10 | best fitness 11.1151 | gen mean 11.1511 | evals 223 | 2277.6s
+[tail] Gen 11 | best fitness 11.1151 | gen mean 11.1716 | evals 245 | 2549.2s
+[tail] Gen 12 | best fitness 11.1151 | gen mean 11.1558 | evals 265 | 2804.1s
+[tail] Gen 13 | best fitness 11.1130 | gen mean 11.1522 | evals 285 | 3029.2s
+[tail] Gen 14 | best fitness 11.1130 | gen mean 11.1512 | evals 304 | 3263.5s
+[tail] Gen 15 | best fitness 11.1080 | gen mean 11.1572 | evals 326 | 3535.2s
+[tail] Gen 16 | best fitness 11.1080 | gen mean 11.1441 | evals 348 | 3798.6s
+[tail] Gen 17 | best fitness 11.1080 | gen mean 11.1493 | evals 369 | 4054.6s
+[tail] Gen 18 | best fitness 11.0977 | gen mean 11.1529 | evals 388 | 4287.5s
+[tail] Gen 19 | best fitness 11.0977 | gen mean 11.1472 | evals 405 | 4497.6s
+[tail] Gen 20 | best fitness 11.0977 | gen mean 11.1500 | evals 426 | 4769.8s
+[tail] Gen 21 | best fitness 11.0977 | gen mean 11.1498 | evals 445 | 5009.2s
+[tail] Gen 22 | best fitness 11.0977 | gen mean 11.1346 | evals 466 | 5279.1s
+[tail] Gen 23 | best fitness 11.0977 | gen mean 11.1515 | evals 488 | 5549.8s
+[tail] Gen 24 | best fitness 11.0977 | gen mean 11.1523 | evals 510 | 5825.5s
+[tail] Gen 25 | best fitness 11.0977 | gen mean 11.1289 | evals 530 | 6054.1s
+[tail] Gen 26 | best fitness 11.0977 | gen mean 11.1373 | evals 552 | 6321.4s
+[tail] Gen 27 | best fitness 11.0977 | gen mean 11.1465 | evals 574 | 6595.0s
+[tail] Gen 28 | best fitness 11.0977 | gen mean 11.1314 | evals 593 | 6809.9s
+[tail] Dừng sớm: 10 thế hệ không cải thiện.
+
+[tail] Best params: {'n_estimators': 800, 'max_depth': 7, 'learning_rate': 0.04523058580135722, 'subsample': 0.8221891244371748, 'colsample_bytree': 0.5989677221966614, 'min_child_weight': 9, 'reg_lambda': 0.09570249315568703}
+[tail] Test: RMSE=9.6011 MAE=7.6359 R2=0.5077
+[2026-07-17 06:03:35] ===== BƯỚC 2: RandomSearch + GridSearch cùng ngân sách 622 =====
+[2026-07-17 06:03:35] RUN: src/search_baselines.py --strategy random --budget 622
+  df["truong_freq"] = df["Trường"].map(freq).astype(float)
+  df["truong_chuyen"] = df["Trường"].str.contains("huyên", na=False).astype(int)
+[random] 25/622 | best CV-RMSE 9.7121 | 179s
+[random] 50/622 | best CV-RMSE 9.7003 | 369s
+[random] 75/622 | best CV-RMSE 9.7003 | 560s
+[random] 100/622 | best CV-RMSE 9.6722 | 896s
+[random] 125/622 | best CV-RMSE 9.6722 | 1119s
+[random] 150/622 | best CV-RMSE 9.6722 | 1359s
+[random] 175/622 | best CV-RMSE 9.6722 | 1605s
+[random] 200/622 | best CV-RMSE 9.6722 | 1828s
+[random] 225/622 | best CV-RMSE 9.6722 | 2056s
+[random] 250/622 | best CV-RMSE 9.6722 | 2310s
+[random] 275/622 | best CV-RMSE 9.6722 | 2558s
+[random] 300/622 | best CV-RMSE 9.6722 | 2785s
+[random] 325/622 | best CV-RMSE 9.6608 | 3030s
+[random] 350/622 | best CV-RMSE 9.6608 | 3261s
+[random] 375/622 | best CV-RMSE 9.6608 | 3537s
+[random] 400/622 | best CV-RMSE 9.6608 | 3830s
+[random] 425/622 | best CV-RMSE 9.6608 | 4150s
+[random] 450/622 | best CV-RMSE 9.6608 | 4401s
+[random] 475/622 | best CV-RMSE 9.6608 | 4639s
+[random] 500/622 | best CV-RMSE 9.6608 | 4923s
+[random] 525/622 | best CV-RMSE 9.6608 | 5292s
+[random] 550/622 | best CV-RMSE 9.6608 | 5622s
+[random] 575/622 | best CV-RMSE 9.6608 | 5867s
+[random] 600/622 | best CV-RMSE 9.6608 | 6206s
+[random] Best CV-RMSE 9.6608 | Test RMSE=9.6262 MAE=7.6484 R2=0.5051
+[2026-07-17 07:50:50] RUN: src/search_baselines.py --strategy grid --budget 622
+  df["truong_freq"] = df["Trường"].map(freq).astype(float)
+  df["truong_chuyen"] = df["Trường"].str.contains("huyên", na=False).astype(int)
+[grid] 25/622 | best CV-RMSE 10.1870 | 34s
+[grid] 50/622 | best CV-RMSE 9.9270 | 68s
+[grid] 75/622 | best CV-RMSE 9.9250 | 129s
+[grid] 100/622 | best CV-RMSE 9.9250 | 197s
+[grid] 125/622 | best CV-RMSE 9.9200 | 343s
+[grid] 150/622 | best CV-RMSE 9.9200 | 457s
+[grid] 175/622 | best CV-RMSE 9.8639 | 557s
+[grid] 200/622 | best CV-RMSE 9.8639 | 694s
+[grid] 225/622 | best CV-RMSE 9.7081 | 930s
+[grid] 250/622 | best CV-RMSE 9.7081 | 1386s
+[grid] 275/622 | best CV-RMSE 9.7081 | 2114s
+[grid] 300/622 | best CV-RMSE 9.7081 | 2613s
+[grid] 325/622 | best CV-RMSE 9.7081 | 2961s
+[grid] 350/622 | best CV-RMSE 9.7081 | 3540s
+[grid] 375/622 | best CV-RMSE 9.6749 | 4232s
+[grid] 400/622 | best CV-RMSE 9.6749 | 8308s
+[grid] 425/622 | best CV-RMSE 9.6749 | 9621s
+[grid] Best CV-RMSE 9.6749 | Test RMSE=9.6029 MAE=7.6358 R2=0.5075

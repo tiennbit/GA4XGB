@@ -1,0 +1,9 @@
+# Phiên bản dùng trong bài báo
+numpy>=2.2
+pandas>=2.2
+scikit-learn>=1.8
+xgboost>=3.2
+matplotlib>=3.8
+
+# Chỉ cần khi dựng lại bản thảo .docx (không liên quan tới phương pháp)
+python-docx>=1.1

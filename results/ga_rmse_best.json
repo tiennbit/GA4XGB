@@ -1,0 +1,29 @@
+{
+  "best_params": {
+    "n_estimators": 800,
+    "max_depth": 8,
+    "learning_rate": 0.038499715306925385,
+    "subsample": 0.8391645626378371,
+    "colsample_bytree": 0.6115603484570608,
+    "min_child_weight": 8,
+    "reg_lambda": 3.1717829484904745
+  },
+  "best_cv_rmse": 9.642338366602916,
+  "test": {
+    "rmse": 9.580478732257298,
+    "mae": 7.6215750610458315,
+    "r2": 0.5097649933411169,
+    "fit_seconds": 5.51
+  },
+  "total_evals": 622,
+  "total_seconds": 8227.5,
+  "ga_config": {
+    "pop": 24,
+    "max_gens": 30,
+    "crossover": 0.9,
+    "mutation": 0.15,
+    "elitism": 2,
+    "cv_folds": 3,
+    "seed": 42
+  }
+}
