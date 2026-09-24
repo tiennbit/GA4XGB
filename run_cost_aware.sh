@@ -7,5 +7,5 @@ mkdir -p results_cost
 PY=".venv/bin/python"
 # In phiên bản trước khi chạy: lệch bản thư viện là lệch số (AGENTS.md, ràng buộc 2)
 PYTHONPATH=src $PY -c "import xgboost,sklearn,numpy,pandas; print('xgboost',xgboost.__version__,'sklearn',sklearn.__version__,'numpy',numpy.__version__,'pandas',pandas.__version__)"
-PYTHONPATH=src $PY src/cost_aware.py --out results_cost/cost_aware.json
+PYTHONPATH=src $PY src/cost_aware.py --out results_cost/cost_aware_rmse.json
 touch results_cost/_DONE

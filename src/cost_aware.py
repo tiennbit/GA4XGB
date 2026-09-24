@@ -5,18 +5,22 @@ trường/tỉnh phân cấp, và quy tắc quyết định theo K.
 Hai câu hỏi, mỗi câu là một cổng quyết định có đi tiếp hay không:
   1. Thêm thông tin trường/tỉnh có kéo được hai đuôi ra khỏi vùng giữa không?
      Thông tin thật dịch cả đường đánh đổi; giãn đầu ra chỉ trượt dọc theo nó.
-  2. Quy tắc trung vị có trọng số theo K có thắng giãn đầu ra và quantile map
+  2. Quy tắc trung bình có trọng số theo K có thắng giãn đầu ra và quantile map
      ở mọi K không?
 
-K: một lỗi ở đuôi (y<60 hoặc y>=100) nặng bằng K lỗi ở vùng giữa.
-   chi phí_K = sum(c_i |e_i|) / sum(c_i),  c_i = K nếu i ở đuôi, 1 nếu không.
-   K=1 chính là MAE.
+Mọi thước đo tính theo RMSE (người dùng chốt 2026-09-24). Lượt đầu (commit
+99c2b19) dùng MAE và quy tắc trung vị; kết quả đó giữ ở results_cost/cost_aware.json.
 
-Vì sao trung vị có trọng số: với mất mát c(y)|ŷ−y|, đạo hàm của kỳ vọng theo ŷ
-là ∫_{y<ŷ} c·p − ∫_{y>ŷ} c·p, bằng 0 khi ŷ là trung vị của phân phối ∝ c(y)·p(y|x).
-Tức là dự báo tối ưu không còn là trung bình có điều kiện. Fitness α của bài cũ
-chỉ tác động qua siêu tham số, mà siêu tham số chỉ đổi cách ước lượng trung bình
-có điều kiện, nên nó không thể tới được điểm này. Đây là lý do α bị lấn át.
+K: một lỗi ở đuôi (y<60 hoặc y>=100) nặng bằng K lỗi ở vùng giữa.
+   chi phí_K = sqrt( sum(c_i e_i²) / sum(c_i) ),  c_i = K nếu i ở đuôi, 1 nếu không.
+   K=1 chính là RMSE.
+
+Vì sao trung bình có trọng số: với mất mát c(y)(ŷ−y)², đạo hàm của kỳ vọng theo ŷ
+là 2∫c(y)(ŷ−y)p(y|x)dy, bằng 0 khi ŷ = ∫c·y·p / ∫c·p, tức trung bình của phân phối
+∝ c(y)·p(y|x). Với K>1 điểm này lệch khỏi trung bình có điều kiện về phía đuôi gần
+hơn. Fitness α của bài cũ chỉ tác động qua siêu tham số, mà siêu tham số chỉ đổi
+cách ước lượng trung bình có điều kiện, nên nó không tới được điểm này. Đây là lý
+do α bị lấn át.
 
 Tập test: cùng phân hoạch 80/20, random_state=42 như bài cũ, để so được với
 results_mseed/. Seed chỉ đổi phân hoạch fold nội bộ (OOF cho mã hoá và cho hiệu
@@ -54,12 +58,13 @@ def in_tail(y):
 
 def cost(y, pred, K):
     c = np.where(in_tail(y), float(K), 1.0)
-    return float(np.sum(c * np.abs(np.asarray(y, dtype=float) - pred)) / np.sum(c))
+    e2 = (np.asarray(y, dtype=float) - pred) ** 2
+    return float(np.sqrt(np.sum(c * e2) / np.sum(c)))
 
 
-def region_mae(y, pred):
-    e = np.abs(np.asarray(y, dtype=float) - pred)
-    return {k: float(e[m].mean()) for k, m in regions(y).items()}
+def region_rmse(y, pred):
+    e2 = (np.asarray(y, dtype=float) - pred) ** 2
+    return {k: float(np.sqrt(e2[m].mean())) for k, m in regions(y).items()}
 
 
 # ---------------------------------------------------------------------------
@@ -140,8 +145,8 @@ def fit_predict(variant, X, y, prov, school, grade_cols, tr, ap, seed):
 # ---------------------------------------------------------------------------
 # Quy tắc quyết định
 # ---------------------------------------------------------------------------
-def k_median(p_oof, y_oof, p_new, K):
-    """Trung vị có trọng số của phân phối y | ŷ.
+def k_mean(p_oof, y_oof, p_new, K):
+    """Trung bình có trọng số (đuôi nhân K) của phân phối y | ŷ.
 
     Phân phối lấy từ sai số OOF trong cùng bin ŷ (bin theo phân vị). Bin theo ŷ
     chứ không dùng một phân phối sai số chung, vì co về giữa làm sai số ở ŷ cao
@@ -157,11 +162,9 @@ def k_median(p_oof, y_oof, p_new, K):
         if len(idx) == 0:
             continue
         r = np.sort(y_oof[b_oof == b] - p_oof[b_oof == b])
-        v = p_new[idx, None] + r[None, :]                # ứng viên y, đã sắp tăng dần
+        v = p_new[idx, None] + r[None, :]                # các giá trị y có thể xảy ra
         w = np.where(in_tail(v), float(K), 1.0)
-        cw = np.cumsum(w, axis=1)
-        j = (cw < cw[:, -1:] / 2).sum(axis=1)
-        out[idx] = v[np.arange(len(idx)), j]
+        out[idx] = (w * v).sum(axis=1) / w.sum(axis=1)
     return out
 
 
@@ -183,7 +186,7 @@ def all_rules(p_oof, y_oof, p_te, mu):
         chosen["stretch_s"][K] = s
         preds["stretch"][K] = mu + s * (p_te - mu)
 
-    preds["kmedian"] = {K: k_median(p_oof, y_oof, p_te, K) for K in KS}
+    preds["kmean"] = {K: k_mean(p_oof, y_oof, p_te, K) for K in KS}
     return preds, chosen
 
 
@@ -215,14 +218,14 @@ def run_seed(seed, X, y, prov, school, grade_cols, tr, te):
              "encoder": info, "chosen": chosen, "rules": {}}
         for rule, byK in preds.items():
             r["rules"][rule] = {str(K): {"cost": cost(yt, byK[K], K),
-                                         "regions": region_mae(yt, byK[K])} for K in KS}
+                                         "regions": region_rmse(yt, byK[K])} for K in KS}
             r["rules"][rule]["audit_K3"] = province_audit(yt, byK[3], prov[te])
         res[v] = r
         print(f"  seed {seed} {v:12s} R2={r['raw_metrics']['r2']:.4f} "
-              f"MAE={r['raw_metrics']['mae']:.3f} "
-              f"cost_K3 raw/stretch/qmap/kmed="
+              f"RMSE={r['raw_metrics']['rmse']:.3f} "
+              f"cost_K3 raw/stretch/qmap/kmean="
               + "/".join(f"{r['rules'][k]['3']['cost']:.3f}"
-                         for k in ["raw", "stretch", "qmap", "kmedian"])
+                         for k in ["raw", "stretch", "qmap", "kmean"])
               + f"  ({time.time() - t0:.0f}s)", flush=True)
     return res
 
@@ -249,14 +252,14 @@ def summarize(per_seed):
 
 
 def print_table(summary):
-    print("\nChi phí theo K trên test (mean qua seed). Thấp hơn là tốt hơn.")
+    print("\nChi phí RMSE theo K trên test (mean qua seed). Thấp hơn là tốt hơn.")
     head = "variant      rule     " + "".join(f"   K={K:<5}" for K in KS)
     print(head)
     for v in VARIANTS:
-        for rule in ["raw", "stretch", "qmap", "kmedian"]:
+        for rule in ["raw", "stretch", "qmap", "kmean"]:
             row = summary[v]["rules"][rule]
             print(f"{v:12s} {rule:8s} " + "".join(f"  {row[str(K)]['cost']['mean']:8.3f}" for K in KS))
-    print("\nMAE theo vùng, dự báo thô (raw):")
+    print("\nRMSE theo vùng, dự báo thô (raw):")
     for v in VARIANTS:
         rg = summary[v]["rules"]["raw"]["1"]["regions"]
         rm = summary[v]["raw_metrics"]
@@ -267,7 +270,7 @@ def print_table(summary):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", default=DATA_PATH)
-    ap.add_argument("--out", default="results_cost/cost_aware.json")
+    ap.add_argument("--out", default="results_cost/cost_aware_rmse.json")
     ap.add_argument("--seeds", type=int, nargs="+", default=SEEDS)
     args = ap.parse_args()
 
