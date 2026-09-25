@@ -673,6 +673,10 @@ def gates_constants():
     assert all(c["K"] == 3 for c in gates.CONTRASTS.values())
     assert gates.r8_star("bag10") == "R8_bag5" and gates.r8_star("rs_tuned_bag5") == "R8_bag5"
     assert gates.r8_star("rs_tuned") == "R8"
+    # bag1 là một mô hình (trùng sub1): so với R8, không phải R8_bag5
+    assert gates.r8_star("bag1") == "R8" and gates.r8_star("sub1") == "R8"
+    assert gates.r8_star("default") == "R8" and gates.r8_star("bag2") == "R8_bag5"
+    assert gates.r8_star("bag40") == "R8_bag5" and gates.r8_star("bag_Bstar") == "R8_bag5"
     assert gates.E10_MARGINS == {"a_g": 1.0, "b_g": 0.05, "tau": 1.0, "dFNR": 0.05, "dFPR": 0.02}
     assert splits.CV_FOLDS == 5
     # splits chặn ngay lúc import nếu ga_xgb.CV_FOLDS bị quay về 3 (HEAD cũ)

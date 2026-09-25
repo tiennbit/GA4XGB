@@ -53,9 +53,13 @@ Lựa chọn khi khung bài chưa nói rõ (ghi cả vào meta.choices của JSO
      ba thước đo (60 cấu hình OOF, trung tâm OOF, trung tâm test). Bảo thủ: một
      thước đo trượt ở một K là cổng trượt, và JSON liệt kê (thước đo, K) trượt.
   5. Hoà khi chọn: np.argmin (chỉ số nhỏ nhất). Top-20 và top-10 bị chặn bởi n_cfg.
-  6. B* của Bảng chi phí: --bstar (tên trung tâm hoặc số B) nếu có; không thì tìm
-     trong decomp_centers.json (E1) bằng ĐÚNG khoá và nghĩa mà decomp_rules (E2)
-     dùng (số là bag<B>, chuỗi là tên trung tâm), để E2 và E4 luôn cùng một B*;
+  6. B* của Bảng chi phí: --bstar (tên trung tâm hoặc số B) nếu có; không thì đọc
+     decomp_centers.json (E1) theo ĐÚNG thứ tự của decomp_rules.resolve_roles (E2):
+     summary.G1.bag_Bstar trước, rồi tìm theo chiều sâu các khoá BSTAR_KEYS (cùng
+     thứ tự với E2); số nguyên là bag<B>, chuỗi là tên trung tâm. Bản trước tìm theo
+     chiều sâu ngay từ gốc với thứ tự khoá khác, nên gặp summary.b_star.B_star trước
+     G1: trên lược đồ E1 hiện tại hai đường cho cùng B*, nhưng một lần E1 đổi lược đồ
+     là đủ để E2 và E4 lặng lẽ dùng hai B* khác nhau;
      không thì trung tâm tên bag_Bstar nếu npz có; không nữa thì tính lại ở đây
      theo định nghĩa của E1 (B nhỏ nhất có trung bình |cost_3(bag B) - cost_3(bag
      tham chiếu)| <= 0,02, tham chiếu là bag lớn nhất có mặt, lẽ ra là 40) với quy
@@ -102,9 +106,10 @@ COMPUTE_CENTERS = ["default", "sub1", "bag_Bstar", "rs_tuned", "rs_tuned_bag5"]
 TAU_MEASURES = ["kendall_all", "kendall_centers_oof", "kendall_centers_test"]
 SMOKE_BOOT_B = 200
 SMOKE_MAX_CFG = 10
-# Khoá tìm B* trong decomp_centers.json: chép nguyên từ decomp_rules.resolve_roles
-# (E2), cùng thứ tự, để hai thí nghiệm không bao giờ chọn hai B* khác nhau.
-BSTAR_KEYS = ["bstar_center", "B_star_center", "bag_Bstar", "B_star", "b_star", "Bstar"]
+# Khoá tìm B* trong decomp_centers.json: chép từ decomp_rules.resolve_roles (E2),
+# cùng thứ tự, và chỉ dùng SAU summary.G1.bag_Bstar như E2, để hai thí nghiệm không
+# bao giờ chọn hai B* khác nhau. Đổi bên E2 thì đổi ở đây cùng lúc.
+BSTAR_KEYS = ["bag_Bstar", "bstar_center", "B_star_center", "B_star", "Bstar"]
 TRACE_KEYS = ("trace_oof", "trace_test", "trace_test_foldavg", "trace_best_iter",
               "trace_n_trees", "trace_oof_rmse")
 
@@ -460,21 +465,30 @@ def _find_key(obj, names):
     return None
 
 
-def _center_name(v):
-    """Số B (hoặc chuỗi toàn chữ số) thành 'bag<B>'; chuỗi khác là tên trung tâm."""
-    if isinstance(v, int) or (isinstance(v, str) and v.isdigit()):
+def _center_name(v, cli=False):
+    """Số nguyên B thành 'bag<B>'; chuỗi là tên trung tâm, như decomp_rules (E2).
+    Riêng --bstar (cli=True) nhận thêm chuỗi toàn chữ số ("5" -> bag5) cho tiện gõ;
+    giá trị đọc từ JSON thì theo đúng quy ước của E2 để hai bên không lệch."""
+    if isinstance(v, int) and not isinstance(v, bool):
+        return f"bag{v}"
+    if cli and isinstance(v, str) and v.isdigit():
         return f"bag{int(v)}"
     return str(v)
 
 
 def resolve_bstar(cli, e1, centers_json, available, local):
-    """(tên trung tâm B*, nguồn): --bstar > decomp_centers.json > bag_Bstar trong npz >
-    tính lại ở E4 (lựa chọn 6)."""
+    """(tên trung tâm B*, nguồn): --bstar > decomp_centers.json (summary.G1.bag_Bstar,
+    rồi BSTAR_KEYS theo chiều sâu, như E2) > bag_Bstar trong npz > tính lại ở E4."""
     if cli is not None:
-        return _center_name(cli), "--bstar"
-    v = _find_key(e1, BSTAR_KEYS) if e1 is not None else None
-    if v is not None:
-        return _center_name(v), f"{centers_json}:{v}"
+        return _center_name(cli, cli=True), "--bstar"
+    if e1 is not None:
+        g1 = (e1.get("summary") or {}).get("G1") or {}
+        v = g1.get("bag_Bstar")
+        if isinstance(v, (str, int)) and not isinstance(v, bool):
+            return _center_name(v), f"{centers_json}:summary.G1.bag_Bstar={v}"
+        v = _find_key(e1, BSTAR_KEYS)
+        if v is not None:
+            return _center_name(v), f"{centers_json}:tìm theo khoá={v}"
     if "bag_Bstar" in available:
         return "bag_Bstar", "npz có trung tâm bag_Bstar"
     if local is not None:
@@ -690,7 +704,7 @@ def main(argv=None):
             "'Thắng quá 0,10' = trung bình chênh <= -SESOI và p Holm < ALPHA.",
             "Giả thuyết 7: trung bình τ >= 0,9 ở mọi K cho cả ba thước đo (60 cấu hình OOF, trung tâm OOF, trung tâm test).",
             "Hoà khi chọn: chỉ số nhỏ nhất (np.argmin).",
-            "B*: --bstar, rồi decomp_centers.json (khoá như decomp_rules), rồi bag_Bstar trong npz, rồi tính lại ở E4.",
+            "B*: --bstar, rồi decomp_centers.json (summary.G1.bag_Bstar rồi khoá như decomp_rules), rồi bag_Bstar trong npz, rồi tính lại ở E4.",
             "Thời gian dò/fit lấy từ decomp_centers.json; E4 chỉ đo thời gian khớp quy tắc.",
             "NaN/inf ghi thành null.",
         ],

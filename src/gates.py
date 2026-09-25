@@ -10,6 +10,7 @@ còn đúng. Mọi script thí nghiệm import từ đây; đừng chép lại g
 File này chỉ chứa dữ liệu (không import gì nặng), để đọc được cả ở máy không có
 xgboost. Giá trị lấy từ Bảng II (mục 5.8) và các cổng ở mục 6.2 đến 6.13.
 """
+import re
 
 # ---------------------------------------------------------------------------
 # Lần chia và thống kê cặp
@@ -126,8 +127,17 @@ def r8_star(primary_center):
     """Tên nhánh huấn luyện có trọng số dùng trong C1.
 
     Trung tâm bag (bag B*, rs_tuned_bag5) được so với R8_bag5 để hai vế cùng hưởng
-    lợi ích giảm phương sai của bagging; trung tâm một mô hình so với R8."""
-    return "R8_bag5" if "bag" in str(primary_center) else "R8"
+    lợi ích giảm phương sai của bagging; trung tâm một mô hình so với R8.
+
+    bag1 là MỘT mô hình (trùng sub1, decomp_centers lựa chọn 2), nên dù tên có chữ
+    "bag" nó phải so với R8: so bag1 với R8_bag5 là cho vế phải thêm lợi ích bagging
+    mà vế trái không có. Chỉ đọc số B ở cuối tên ("bag1", "rs_tuned_bag1"); tên không
+    có số (ví dụ "bag_Bstar") giữ hành vi cũ."""
+    name = str(primary_center)
+    m = re.search(r"bag(\d+)$", name)
+    if m and int(m.group(1)) == 1:
+        return "R8"
+    return "R8_bag5" if "bag" in name else "R8"
 
 
 # ---------------------------------------------------------------------------

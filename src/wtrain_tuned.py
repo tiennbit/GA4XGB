@@ -3,10 +3,18 @@
 
 Câu hỏi: tầng hậu kỳ (R1 trên trung tâm khớp bằng squared loss) có còn hơn huấn
 luyện có trọng số (R8) khi đối thủ được cơ hội công bằng không? final_compare chỉ so
-với wtrain CHƯA dò lại và CHƯA chuẩn hoá (mục 0.3): trọng số thô K làm tổng hessian
-lớn gấp nhiều lần so với min_child_weight, reg_lambda đã dò cho w ≡ 1, và số cây cố
-định. Ở đây R8 được cùng ngân sách dò với trung tâm của E1, trọng số chuẩn hoá, và
-dừng sớm theo đúng chi phí (Nhận xét 4).
+với wtrain CHƯA dò lại và CHƯA chuẩn hoá (mục 0.3): siêu tham số và số cây cố định
+dò cho w ≡ 1, trọng số thô. Ở đây R8 được cùng ngân sách dò với trung tâm của E1,
+trọng số chuẩn hoá, và dừng sớm theo đúng chi phí (Nhận xét 4).
+
+Chuẩn hoá một mình đổi rất ít với họ bậc thang: nhân mọi trọng số với c đúng bằng
+chia reg_lambda, min_child_weight và gamma cho c (lá -G/(H+λ), gain so với gamma,
+tổng hessian so với min_child_weight). Trung bình trọng số thô chỉ 1,30 / 1,60 /
+2,05 ở K = 3 / 5 / 8, và lưới dò đã phủ min_child_weight [1; 20], reg_lambda [0; 10].
+"Gấp nhiều lần" chỉ đúng với họ prior (sàn mật độ 0,01, tới 100^λ). Nên sự sụp của
+wtrain trên tuned ở thăm dò không thể quy cho thiếu chuẩn hoá khi chưa tách: nhánh
+thứ cấp step_raw / step_norm (mục 7 dưới) cho đúng chuỗi raw không dò -> chuẩn hoá
+không dò -> chuẩn hoá có dò (R8) trên cùng pipeline.
 
 Quy trình, cho mỗi lần chia và mỗi K ∈ {2; 3; 5; 8} (họ bậc thang đối xứng):
   1. Lần chia, fold trong và tập dừng sớm là của E1. idx_tr, idx_te đọc từ npz của
@@ -23,11 +31,13 @@ Quy trình, cho mỗi lần chia và mỗi K ∈ {2; 3; 5; 8} (họ bậc thang 
      tail_weights.weights vì hàm đó cứng 60/100; hai cách trùng nhau trên HSA nhưng
      chỉ cách theo khối lượng mang sang được E11. lo, hi phải trùng meta của npz E1.
   4. Mỗi cấu hình, mỗi fold: khớp trên phần `fit` của fold với sample_weight =
-     w_K(y)/mean(w_K(y_fit)). Chọn đơn giản: chuẩn hoá theo đúng các hàng mô hình
-     thấy khi khớp (fold huấn luyện trừ tập dừng sớm), vì thứ cần giữ là tổng
-     hessian bằng số hàng khớp; chuẩn hoá theo cả fold huấn luyện (gồm tập dừng
-     sớm) chỉ lệch một hệ số rất gần 1. Tập dừng sớm nhận trọng số chia cùng hằng
-     số (thang không đổi RMSE có trọng số). Dừng sớm 50 vòng, tối đa 3.000 cây,
+     w_K(y)/mean(w_K(y_fit)). LỆCH CÓ CHỦ Ý so với chữ của mục 6.6 (mẫu số là trung
+     bình trên cả fold huấn luyện, gồm tập dừng sớm): chuẩn hoá theo đúng các hàng
+     mô hình thấy khi khớp giữ tổng hessian bằng số hàng khớp. Hai mẫu số lệch nhau
+     một hệ số mean(w_fit)/mean(w_train), gần 1 vì tập dừng sớm là mẫu ngẫu nhiên
+     10% của fold; theo tương đương ở đầu docstring, hệ số đó chỉ như nhân
+     reg_lambda và min_child_weight với một số gần 1. Tập dừng sớm nhận trọng số
+     chia cùng hằng số (thang không đổi RMSE có trọng số). Dừng sớm 50 vòng, tối đa 3.000 cây,
      eval_metric rmse với sample_weight_eval_set: RMSE có trọng số của XGBoost là
      sqrt(Σ w e² / Σ w), đúng cost_K trên tập dừng sớm. OOF chỉ trên fold giữ lại.
      random_state = 0 như vết cấu hình của E1.
@@ -35,9 +45,14 @@ Quy trình, cho mỗi lần chia và mỗi K ∈ {2; 3; 5; 8} (họ bậc thang 
      Khớp lại trên toàn tập huấn luyện với số cây = int(trung vị(best_iteration + 1))
      (best_iteration đánh số từ 0, cùng quy ước trace_n_trees của E1), trọng số
      chuẩn hoá trung bình 1 trên toàn tập huấn luyện. R8 = random_state 0; R8_bag5 =
-     trung bình random_state 0..4 (R8 là thành viên 0, không khớp lại lần hai). Tên
-     "R8_bag5" giữ nguyên cả khi --smoke dùng bag 2, để mã hậu kỳ và gates.r8_star
-     đọc một tên; số thành viên thật ghi ở n_bag.
+     trung bình random_state 0..4 (R8 là thành viên 0, không khớp lại lần hai). Mỗi
+     thành viên b = 1..4 có 5 mô hình fold RIÊNG (random_state b, cùng tập dừng sớm,
+     cùng trọng số) và số cây riêng int(trung vị(best_iteration + 1)), đúng cách E1
+     dựng rs_tuned_bag5 (decomp_centers.fit_phase2). Bản trước cho cả 5 thành viên
+     dùng số cây của thành viên 0, nên khi trung tâm chính là rs_tuned_bag5 hai vế
+     của C1 bag theo hai quy tắc khác nhau. OOF của R8_bag5 (trung bình OOF 5 thành
+     viên) được lưu cùng. Tên "R8_bag5" giữ nguyên cả khi --smoke dùng bag 2, để mã
+     hậu kỳ và gates.r8_star đọc một tên; số thành viên thật ghi ở n_bag.
   6. C1 = cost_K(R1 trên trung tâm c) - cost_K(R8*(c)), R8* = gates.r8_star(c), tính
      cho MỌI trung tâm có trong npz E1 vì trung tâm chính chỉ biết sau cổng G1. R1
      khớp bằng decision_layer trên (ŷ OOF, y) của E1 với cùng w_K rồi áp cho ŷ test,
@@ -50,10 +65,17 @@ Quy trình, cho mỗi lần chia và mỗi K ∈ {2; 3; 5; 8} (họ bậc thang 
   7. Thứ cấp (ghi rõ trong bài): họ prior (λ ∈ tail_prior.LDS_LAMBDAS) và φ (K ∈
      {2; 3; 5; 8}) chỉ chuẩn hoá, KHÔNG dò lại, KHÔNG dừng sớm lại: siêu tham số và
      số cây của trung tâm chính. Mặc định là cấu hình rs_tuned của E1 (meta
-     rs_tuned_index, số cây trace_n_trees); --secondary-from bag dùng XGBoost mặc
-     định với subsample = colsample_bytree = 0,8, cho trường hợp G1 chọn bag B*. Mỗi
-     họ được chấm bằng chi phí của chính nó và so với R1 cùng trọng số; so giữa các
-     họ không phải so hiệu năng (F14, Nhận xét 6).
+     rs_tuned_index, số cây trace_n_trees; thành viên bag lấy số cây riêng của
+     rs_tuned_bag5 trong meta.info của E1 nếu có); --secondary-from bag dùng XGBoost
+     mặc định với subsample = colsample_bytree = 0,8, cho trường hợp G1 chọn bag B*.
+     Mỗi họ được chấm bằng chi phí của chính nó và so với R1 cùng trọng số; so giữa
+     các họ không phải so hiệu năng (F14, Nhận xét 6).
+     Phép tách nguyên nhân (thứ cấp, NGOÀI C1): họ bậc thang ở K ∈ {2; 3; 5; 8} với
+     cùng siêu tham số và số cây của trung tâm, hai biến thể: step_norm (trọng số
+     chuẩn hoá trung bình 1) và step_raw (trọng số thô K, như final_compare). Cùng
+     với R8 của đơn vị K (chuẩn hoá VÀ dò lại) nó cho hai hiệu theo lần chia:
+     step_norm - step_raw (phần của chuẩn hoá) và R8 - step_norm (phần của dò lại),
+     ở summary.attribution. Không so với R1, không vào bảng C1 hay cổng.
 
 Song song: joblib (loky) trên từng cặp (cấu hình, fold), 300 việc mỗi (lần chia, K);
 cấu hình learning_rate nhỏ (nhiều cây nhất) xếp trước để lượt cuối không bị một việc
@@ -67,9 +89,20 @@ về float32 khi dựng DMatrix. XGBoost n_jobs = max(1, cpu // workers) (splits
 Chạy tiếp: đơn vị là (lần chia, K) và (lần chia, "secondary"). Mỗi đơn vị ghi npz
 (preds_dir/split<seed>_K<K>.npz, split<seed>_secondary.npz) TRƯỚC, rồi mục JSON trong
 <out>.partial; meta của npz mang sẵn mục JSON, nên job chết giữa hai lần ghi không
-phải khớp lại. Mọi mục ghi sha256 của npz E1 đã đọc; chạy tiếp trên npz E1 khác thì
+phải khớp lại. Ngược lại, mục trong .partial chỉ được tính là xong khi npz của nó
+còn đó và cùng dấu (preds_io.load_or_none): E5, E9 đọc dự đoán từ npz, nên một mục
+JSON không có npz đi kèm là đơn vị chưa xong và được tính lại. Mọi mục ghi sha256 của npz E1 đã đọc; chạy tiếp trên npz E1 khác thì
 báo lỗi thay vì trộn. Dấu lượt chạy (preds_io.fingerprint) gồm mọi tham số đổi số
 của một đơn vị và code_sha256, không gồm danh sách seed, K hay --workers.
+
+Ma trận memmap tạm nằm ở preds_dir/_mm_split<seed>_p<pid>_*: xoá khi xong mỗi lần
+chia, và khi khởi động xoá thư mục của tiến trình đã chết (job bị giết không chạy
+khối finally). Có pid trong tên để hai lượt chạy chung preds_dir không xoá của nhau.
+Các ma trận này dựng từ học bạ, nên không để chúng nằm lại trên đĩa.
+
+Ngân sách phải bằng E1 (mục 6.6, "hai bên luôn cùng ngân sách"): ngoài --smoke,
+n_cfg phải bằng cả bảng cấu hình của E1, và max_trees, es_rounds phải bằng meta của
+npz E1; lệch là báo lỗi, không chỉ ghi cờ.
 
 Chưa hỗ trợ chia theo nhóm (khoá băm bản ghi, nếu E0b tìm thấy dòng trùng): khi đó
 idx_tr của E1 khác outer_split không nhóm và script dừng với thông báo rõ.
@@ -83,6 +116,7 @@ Kiểm thử khói (Mac, chỉ dữ liệu giả):
 import argparse
 import os
 import platform
+import re
 import shutil
 import sys
 import tempfile
@@ -108,7 +142,7 @@ PROTOCOL_VERSION = 1               # tăng khi đổi cách tính mà tham số 
 R8_NAME, R8_BAG_NAME = "R8", "R8_bag5"
 REPORT_KS = [1] + list(K_GRID)     # cost_K của mỗi dự đoán ở mọi K (mô tả chéo K)
 SMOKE = {"n_cfg": 2, "n_bag": 2, "max_trees": 50, "es_rounds": 10, "boot_B": 200,
-         "lambdas": [0.5], "phi_Ks": [PRIMARY_K]}
+         "lambdas": [0.5], "phi_Ks": [PRIMARY_K], "step_Ks": [PRIMARY_K]}
 
 
 # ---------------------------------------------------------------------------
@@ -130,11 +164,13 @@ def _xgb(threads, **kw):
     return XGBRegressor(tree_method="hist", verbosity=0, n_jobs=int(threads), **kw)
 
 
-def fit_fold(j, fold, cfg, paths, y_fit, w_fit, y_es, w_es, max_trees, es_rounds, threads):
+def fit_fold(j, fold, cfg, paths, y_fit, w_fit, y_es, w_es, max_trees, es_rounds, threads,
+             random_state=0):
     """Một mô hình fold có trọng số, dừng sớm theo RMSE có trọng số trên tập dừng sớm.
-    Trả (j, fold, best_iteration, ŷ trên fold giữ lại, chạm trần?, giây)."""
+    Trả (j, fold, best_iteration, ŷ trên fold giữ lại, chạm trần?, giây).
+    random_state = 0 cho vết cấu hình (như E1); b cho thành viên b của R8_bag5."""
     t0 = time.time()
-    m = _xgb(threads, random_state=0, n_estimators=int(max_trees),
+    m = _xgb(threads, random_state=int(random_state), n_estimators=int(max_trees),
              early_stopping_rounds=int(es_rounds), eval_metric="rmse", **cfg)
     m.fit(_load(paths["fit"]), y_fit, sample_weight=w_fit,
           eval_set=[(_load(paths["es"]), y_es)], sample_weight_eval_set=[w_es], verbose=False)
@@ -229,6 +265,8 @@ class SplitContext:
         # tiền tố --n-cfg (ví dụ --smoke lấy 2 cấu hình đầu).
         self.configs_full = [dict(c) for c in table]
         self.configs = self.configs_full[:n_cfg]
+        if not args.smoke:
+            check_budget(meta, n_cfg, len(table), args, e1_path)
         self.configs_match = self.configs == splits.sample_configs(len(table), seed)[:n_cfg]
         if not self.configs_match:
             print(f"  [cảnh báo] split {seed}: bảng cấu hình của E1 khác splits.sample_configs; "
@@ -258,7 +296,70 @@ class SplitContext:
                 self.rs_n_trees = int(np.asarray(d["trace_n_trees"])[self.rs_index])
             elif "trace_best_iter" in d:
                 self.rs_n_trees = int(np.median(np.asarray(d["trace_best_iter"])[self.rs_index] + 1))
+        # Số cây riêng của từng thành viên rs_tuned_bag<B> (E1 ghi ở meta.info), để nhánh
+        # thứ cấp "không dò lại" dùng ĐÚNG trung tâm rs_tuned_bag5 của E1, chỉ thêm trọng số.
+        self.rs_bag_n_trees = None
+        for name, inf in (meta.get("info") or {}).items():
+            if name.startswith("rs_tuned_bag") and isinstance((inf or {}).get("n_trees"), list):
+                self.rs_bag_n_trees = [int(t) for t in inf["n_trees"]]
+                break
         self.tmp, self.paths, self.n_features = None, None, None
+
+
+def check_budget(meta, n_cfg, table_len, args, e1_path):
+    """Ngoài --smoke: ngân sách dò của R8 phải bằng của rs_tuned (mục 6.6).
+
+    Vì sao báo lỗi thay vì ghi cờ: C1 là phép so chính, và giao kèo của nó là "hai
+    bên cùng ngân sách". Một lượt chạy gõ nhầm --n-cfg 40 trên bảng 60, hay
+    --max-trees khác trần của E1, vẫn cho ra số trông hợp lệ; cờ trong JSON thì
+    không ai đọc tới lúc viết bài."""
+    bad = []
+    if n_cfg != table_len:
+        bad.append(f"--n-cfg {n_cfg} khác bảng cấu hình của E1 ({table_len})")
+    for key, mine in (("max_trees", args.max_trees), ("es_rounds", args.es_rounds)):
+        if key not in meta:
+            bad.append(f"meta của npz E1 không có '{key}' nên không kiểm được ngân sách")
+        elif int(meta[key]) != int(mine):
+            bad.append(f"--{key.replace('_', '-')} {mine} khác E1 ({meta[key]})")
+    if bad:
+        raise ValueError(f"{e1_path}: ngân sách E2b khác E1 (mục 6.6, hai bên cùng ngân sách): "
+                         + "; ".join(bad) + ". Chạy lại với đúng tham số của E1, hoặc --smoke để thử mã.")
+
+
+MM_PREFIX = "_mm_split"
+
+
+def _pid_alive(pid):
+    try:
+        os.kill(int(pid), 0)
+    except ProcessLookupError:
+        return False
+    except (PermissionError, ValueError, OverflowError):
+        return True                      # không chắc thì giữ, đừng xoá của người khác
+    return True
+
+
+def sweep_memmaps(parent, only_pid=None):
+    """Xoá thư mục memmap tạm dưới parent. only_pid: chỉ của tiến trình đó (lúc thoát
+    bình thường); None: của mọi tiến trình đã chết (lúc khởi động, sau job bị giết).
+    Thư mục kiểu cũ không có pid thì coi là rác của lượt trước và xoá. Trả số đã xoá."""
+    if not os.path.isdir(parent):
+        return 0
+    n = 0
+    for name in os.listdir(parent):
+        path = os.path.join(parent, name)
+        if not (name.startswith(MM_PREFIX) and os.path.isdir(path)):
+            continue
+        m = re.match(rf"{MM_PREFIX}\d+_p(\d+)_", name)
+        pid = int(m.group(1)) if m else None
+        if only_pid is not None:
+            if pid != only_pid:
+                continue
+        elif pid is not None and _pid_alive(pid):
+            continue
+        shutil.rmtree(path, ignore_errors=True)
+        n += 1
+    return n
 
 
 def write_designs(F, ctx, parent):
@@ -268,7 +369,7 @@ def write_designs(F, ctx, parent):
     Cột trường của fold tính từ hàng huấn luyện của fold (fit ∪ es), như E1 và
     tests/make_fake_preds.py; của mô hình khớp lại tính từ toàn tập huấn luyện."""
     os.makedirs(parent, exist_ok=True)
-    tmp = tempfile.mkdtemp(prefix=f"_mm_split{ctx.seed}_", dir=parent)
+    tmp = tempfile.mkdtemp(prefix=f"{MM_PREFIX}{ctx.seed}_p{os.getpid()}_", dir=parent)
     tr, te = ctx.tr, ctx.te
 
     def save(name, X):
@@ -335,17 +436,19 @@ def run_K(ctx, K, args, fp):
     wfun = dl.step(K, K, ctx.lo, ctx.hi)
     w_all = wfun(y_tr)
 
+    def fold_job(j, cfg, f, thr, random_state=0):
+        # Trọng số fold chuẩn hoá theo hàng khớp (docstring, bước 4); tập dừng sớm chia
+        # cùng hằng số. Dùng chung cho vết cấu hình và thành viên bag để hai bên không lệch.
+        fit, es = f["fit"], f["es"]
+        c = float(w_all[fit].mean())
+        return delayed(fit_fold)(j, f["fold"], cfg, ctx.paths["folds"][f["fold"]],
+                                 y_tr[fit], w_all[fit] / c, y_tr[es], w_all[es] / c,
+                                 args.max_trees, args.es_rounds, thr, random_state)
+
     # (1) Dò: mỗi cấu hình x mỗi fold, learning_rate nhỏ trước
     order = sorted(range(n_cfg), key=lambda j: ctx.configs[j]["learning_rate"])
     threads = args.threads or splits.xgb_threads(min(args.workers, n_cfg * n_folds))
-    jobs = []
-    for j in order:
-        for f in plan:
-            fit, es = f["fit"], f["es"]
-            c = float(w_all[fit].mean())
-            jobs.append(delayed(fit_fold)(j, f["fold"], ctx.configs[j], ctx.paths["folds"][f["fold"]],
-                                          y_tr[fit], w_all[fit] / c, y_tr[es], w_all[es] / c,
-                                          args.max_trees, args.es_rounds, threads))
+    jobs = [fold_job(j, ctx.configs[j], f, threads) for j in order for f in plan]
     t0 = time.time()
     out = _parallel(args.workers, jobs)
     tune_s = time.time() - t0
@@ -363,15 +466,39 @@ def run_K(ctx, K, args, fp):
     n_trees = np.median(best + 1, axis=1).astype(np.int32)     # số cây, không phải chỉ số
     jb = int(np.argmin(oof_cost))
 
-    # (2) Khớp lại cấu hình được chọn, trọng số chuẩn hoá trên toàn tập huấn luyện
+    # (2) Thành viên 1..n_bag-1 của R8_bag5: mô hình fold và dừng sớm RIÊNG, số cây
+    # riêng, đúng như E1 dựng rs_tuned_bag5 (decomp_centers.fit_phase2, lượt B và C).
+    # Thành viên 0 chính là vết của cấu hình jb (random_state 0), không khớp lại.
+    cfg_b = ctx.configs[jb]
+    m_best, m_oof, m_capped = {0: best[jb]}, {0: oof[jb]}, {0: int(capped[jb].sum())}
+    n_bj = (args.n_bag - 1) * n_folds
+    bthreads = args.threads or splits.xgb_threads(min(args.workers, max(1, n_bj)))
+    t1 = time.time()
+    bout = _parallel(args.workers, [fold_job(b, cfg_b, f, bthreads, random_state=b)
+                                    for b in range(1, args.n_bag) for f in plan]) if n_bj else []
+    bag_es_s = time.time() - t1
+    bag_es_cpu = 0.0
+    for b, k, bi, p_va, cap, secs in bout:
+        m_best.setdefault(b, np.zeros(n_folds, dtype=np.int32))[k] = bi
+        m_oof.setdefault(b, np.full(n_tr, np.nan))[plan[k]["va"]] = p_va
+        m_capped[b] = m_capped.get(b, 0) + int(cap)
+        bag_es_cpu += secs
+    members = list(range(args.n_bag))
+    assert all(np.all(np.isfinite(m_oof[b])) for b in members), "OOF thành viên bag còn NaN"
+    m_trees = [int(np.median(np.asarray(m_best[b]) + 1)) for b in members]
+    assert m_trees[0] == int(n_trees[jb])
+
+    # (3) Khớp lại mỗi thành viên với số cây của chính nó, trọng số chuẩn hoá trên toàn
+    # tập huấn luyện
     w_tr = w_all / w_all.mean()
     rthreads = args.threads or splits.xgb_threads(min(args.workers, args.n_bag))
-    t1 = time.time()
+    t2 = time.time()
     fits = _parallel(args.workers, [
-        delayed(fit_full)(ctx.configs[jb], int(n_trees[jb]), b, ctx.paths["tr"], ctx.paths["te"],
-                          y_tr, w_tr, rthreads) for b in range(args.n_bag)])
-    fit_s = time.time() - t1
+        delayed(fit_full)(cfg_b, m_trees[b], b, ctx.paths["tr"], ctx.paths["te"],
+                          y_tr, w_tr, rthreads) for b in members])
+    fit_s = time.time() - t2
     preds = {R8_NAME: fits[0][0], R8_BAG_NAME: np.mean([p for p, _ in fits], axis=0)}
+    oof_bag = np.mean([m_oof[b] for b in members], axis=0)
 
     entry = {
         "K": K, "family": "step", "lo": ctx.lo, "hi": ctx.hi, "feature_set": ctx.fset,
@@ -386,8 +513,10 @@ def run_K(ctx, K, args, fp):
         "test": {v: step_metrics(y_te, p, ctx.lo, ctx.hi, K) for v, p in preds.items()},
         "cost_K": {v: sp.cost_k(y_te, p, K, K, ctx.lo, ctx.hi) for v, p in preds.items()},
         "centers": center_contrasts(ctx, wfun, preds, args.boot_B, K=K),
-        "tune_s": tune_s, "tune_cpu_s": cpu_s, "fit_s": fit_s,
-        "fit_cpu_s": float(sum(s for _, s in fits)), "n_bag": int(args.n_bag),
+        "bag_n_trees": m_trees, "bag_best_iter": [np.asarray(m_best[b]).tolist() for b in members],
+        "bag_capped_fold_fits": int(sum(m_capped.values())),
+        "tune_s": tune_s, "tune_cpu_s": cpu_s, "bag_es_s": bag_es_s, "bag_es_cpu_s": bag_es_cpu,
+        "fit_s": fit_s, "fit_cpu_s": float(sum(s for _, s in fits)), "n_bag": int(args.n_bag),
         "workers": int(args.workers), "xgb_threads": int(threads),
     }
     meta = {"seed": ctx.seed, "K": K, "family": "step", "feature_set": ctx.fset, "lo": ctx.lo,
@@ -397,61 +526,93 @@ def run_K(ctx, K, args, fp):
             "fingerprint": fp, "entry": entry, "provenance": provenance.stamp()}
     arrays = dict(idx_tr=ctx.tr, idx_te=ctx.te, y_tr=y_tr, y_te=y_te, fold_of=ctx.fold_of,
                   school_code=ctx.school_code, prov_code=ctx.prov_code,
-                  oof={R8_NAME: oof[jb]}, test=preds, trace_oof_cost=oof_cost,
+                  oof={R8_NAME: oof[jb], R8_BAG_NAME: oof_bag}, test=preds, trace_oof_cost=oof_cost,
                   trace_oof_rmse=oof_rmse, trace_best_iter=best, trace_n_trees=n_trees, meta=meta)
     return entry, arrays
 
 
 # ---------------------------------------------------------------------------
-# Họ thứ cấp: prior và φ, chỉ chuẩn hoá, không dò lại
+# Họ thứ cấp: prior và φ (chỉ chuẩn hoá, không dò lại) và phép tách nguyên nhân
+# của họ bậc thang (step_norm, step_raw); mọi thứ ở đây NGOÀI C1 và cổng
 # ---------------------------------------------------------------------------
+# Họ tách nguyên nhân: không so với R1, chỉ so với R8 cùng K (summary.attribution).
+ATTRIBUTION_FAMS = ("step_norm", "step_raw")
+SECONDARY_LABELS = {
+    "prior": "thứ cấp: chỉ chuẩn hoá, không dò lại; chấm bằng chi phí của chính họ",
+    "phi": "thứ cấp: chỉ chuẩn hoá, không dò lại; chấm bằng chi phí của chính họ",
+    "step_norm": "tách nguyên nhân (thứ cấp, ngoài C1): bậc thang, trọng số chuẩn hoá, KHÔNG dò lại "
+                 "(cấu hình và số cây của trung tâm)",
+    "step_raw": "tách nguyên nhân (thứ cấp, ngoài C1): bậc thang, trọng số THÔ như final_compare, "
+                "KHÔNG dò lại (cấu hình và số cây của trung tâm)",
+}
+
+
 def secondary_params(ctx, args):
-    """(cfg, n_trees, mô tả) của trung tâm chính cho họ thứ cấp."""
+    """(cfg, số cây của từng thành viên bag, mô tả) của trung tâm cho họ thứ cấp.
+
+    Thành viên b > 0 lấy số cây riêng của rs_tuned_bag<B> của E1 khi meta có (như E1
+    dựng trung tâm đó); không có thì dùng số cây của rs_tuned cho mọi thành viên và
+    ghi rõ trong mô tả."""
     if args.secondary_from == "bag":
-        return ({"subsample": BAG_SUBSAMPLE, "colsample_bytree": BAG_SUBSAMPLE}, None,
+        return ({"subsample": BAG_SUBSAMPLE, "colsample_bytree": BAG_SUBSAMPLE}, [None] * args.n_bag,
                 "XGBoost mặc định, subsample = colsample_bytree = 0,8 (trung tâm bag)")
     if ctx.rs_index is None or ctx.rs_n_trees is None:
         raise ValueError(f"{ctx.e1_path}: không tìm được rs_tuned (rs_tuned_index / trace_n_trees) "
                          "cho họ thứ cấp; dùng --secondary-from bag hoặc --no-secondary")
-    return (dict(ctx.configs_full[ctx.rs_index]), ctx.rs_n_trees,
-            f"cấu hình rs_tuned của E1 (chỉ số {ctx.rs_index}), số cây trace_n_trees của E1")
+    src = f"cấu hình rs_tuned của E1 (chỉ số {ctx.rs_index}), số cây trace_n_trees của E1"
+    bt = ctx.rs_bag_n_trees
+    if bt and len(bt) >= args.n_bag and bt[0] == ctx.rs_n_trees:
+        trees = list(bt[:args.n_bag])
+        src += "; thành viên bag: số cây riêng của rs_tuned_bag trong meta.info của E1"
+    else:
+        trees = [ctx.rs_n_trees] * args.n_bag
+        src += "; thành viên bag: meta E1 không có số cây riêng, dùng số cây của rs_tuned"
+    return dict(ctx.configs_full[ctx.rs_index]), trees, src
 
 
 def run_secondary(ctx, args, fp):
     y_tr, y_te = ctx.y_tr, ctx.y_te
     dens, rel = dl.density(y_tr), Relevance(y_tr)
     fams = {"prior": [(lam, dl.prior(lam, dens)) for lam in args.lambdas],
-            "phi": [(K, dl.phi(K, rel)) for K in args.phi_Ks]}
-    cfg, n_trees, source = secondary_params(ctx, args)
+            "phi": [(K, dl.phi(K, rel)) for K in args.phi_Ks],
+            "step_norm": [(K, dl.step(K, K, ctx.lo, ctx.hi)) for K in args.step_Ks],
+            "step_raw": [(K, dl.step(K, K, ctx.lo, ctx.hi)) for K in args.step_Ks]}
+    cfg, trees, source = secondary_params(ctx, args)
     items = [(fam, prm, wf) for fam, lst in fams.items() for prm, wf in lst]
     n_jobs = len(items) * args.n_bag
     threads = args.threads or splits.xgb_threads(min(args.workers, n_jobs))
     jobs = []
     for fam, prm, wf in items:
         w = wf(y_tr)
+        # step_raw giữ trọng số thô: đó chính là biến thể cần tách khỏi chuẩn hoá
+        w_fit = w if fam == "step_raw" else w / w.mean()
         for b in range(args.n_bag):
-            jobs.append(delayed(fit_full)(cfg, n_trees, b, ctx.paths["tr"], ctx.paths["te"], y_tr,
-                                          w / w.mean(), threads))
+            jobs.append(delayed(fit_full)(cfg, trees[b], b, ctx.paths["tr"], ctx.paths["te"], y_tr,
+                                          w_fit, threads))
     t0 = time.time()
     fits = _parallel(args.workers, jobs)
     fit_s = time.time() - t0
     entry = {"e1_npz_sha256": ctx.e1_sha, "params_source": source, "params": cfg,
-             "n_trees": n_trees, "n_bag": int(args.n_bag), "fit_s": fit_s,
-             "fit_cpu_s": float(sum(s for _, s in fits)), "families": {}}
+             "n_trees": trees[0], "bag_n_trees": trees, "n_bag": int(args.n_bag), "fit_s": fit_s,
+             "fit_cpu_s": float(sum(s for _, s in fits)), "families": {},
+             "labels": {f: SECONDARY_LABELS[f] for f in fams}}
     test = {}
     for i, (fam, prm, wf) in enumerate(items):
         ps = [fits[i * args.n_bag + b][0] for b in range(args.n_bag)]
         preds = {R8_NAME: ps[0], R8_BAG_NAME: np.mean(ps, axis=0)}
         w_te = wf(y_te)
-        entry["families"].setdefault(fam, {})[str(prm)] = {
+        cell = {
             "test": {v: {"region_rmse": sp.region_rmse(y_te, p, ctx.lo, ctx.hi),
                          "cost": sp.cost_w(y_te, p, w_te)} for v, p in preds.items()},
-            "weights": {"train_mean_raw": float(wf(y_tr).mean()), "kish_ratio": kish_ratio(wf(y_tr))},
-            "centers": center_contrasts(ctx, wf, preds, args.boot_B, K=None)}
+            "weights": {"train_mean_raw": float(wf(y_tr).mean()), "kish_ratio": kish_ratio(wf(y_tr)),
+                        "normalized": fam != "step_raw"}}
+        if fam not in ATTRIBUTION_FAMS:
+            cell["centers"] = center_contrasts(ctx, wf, preds, args.boot_B, K=None)
+        entry["families"].setdefault(fam, {})[str(prm)] = cell
         test[f"{fam}_{prm}"] = preds[R8_NAME]
         test[f"{fam}_{prm}_bag"] = preds[R8_BAG_NAME]
     meta = {"seed": ctx.seed, "unit": "secondary", "feature_set": ctx.fset, "lo": ctx.lo, "hi": ctx.hi,
-            "params": cfg, "n_trees": n_trees, "params_source": source,
+            "params": cfg, "n_trees": trees[0], "bag_n_trees": trees, "params_source": source,
             "e1_npz": os.path.abspath(ctx.e1_path), "e1_npz_sha256": ctx.e1_sha,
             "fingerprint": fp, "entry": entry, "provenance": provenance.stamp()}
     arrays = dict(idx_tr=ctx.tr, idx_te=ctx.te, y_tr=y_tr, y_te=y_te, fold_of=ctx.fold_of,
@@ -483,9 +644,18 @@ def run_seed(F, seed, args, fp, res):
                 "Xoá/đổi tên .partial và preds của E2b để tính lại.")
     pending = []
     for u in units:
-        if u in entry:
-            continue
         p = unit_path(args.preds_dir, seed, u)
+        if u in entry:
+            # Mục JSON chỉ là xong khi npz của nó còn và cùng dấu: E5, E9 đọc dự đoán từ
+            # npz, nên mục không có npz đi kèm là đơn vị dở. Lệch dấu thì tính lại (ghi đè).
+            if preds_io.load_or_none(p, fp, on_mismatch="recompute") is not None:
+                continue
+            print(f"  split {seed} {u}: có trong {args.out}.partial nhưng {p} thiếu hoặc khác dấu "
+                  "-> tính lại", flush=True)
+            del entry[u]
+            preds_io.dump_json_atomic(res, args.out + ".partial")
+            pending.append(u)
+            continue
         d_u = preds_io.load_or_none(p, fp)
         if d_u is not None:
             m = d_u["meta"]
@@ -570,8 +740,40 @@ def _contrast_table(rows_by_key, roles):
     return tab
 
 
-def summarize(per, Ks, primary_center=None):
-    out = {"by_K": {}, "C1": {}, "gate": {}, "secondary": {}, "compute": {}}
+def attribution(per, Ks):
+    """Tách nguyên nhân (thứ cấp, NGOÀI C1): với mỗi K có cả đơn vị K và step_norm,
+    step_raw ở đơn vị secondary, hiệu theo lần chia trên cùng tập kiểm tra:
+      normalization = cost_K(step_norm) - cost_K(step_raw)   (phần của chuẩn hoá)
+      retuning      = cost_K(R8) - cost_K(step_norm)          (phần của dò lại)
+      total         = cost_K(R8) - cost_K(step_raw)           (tổng, = hai phần cộng lại)
+    Âm = vế trái tốt hơn. Làm cho cả R8 một mô hình và R8_bag5. Chỉ mô tả + NB, không
+    vào cổng: đây là để bài nói được sự sụp của wtrain ở thăm dò đến từ đâu."""
+    out = {}
+    for K in Ks:
+        kk = str(K)
+        rows = []
+        for s, e in per.items():
+            sec = (e.get("secondary") or {}).get("families") or {}
+            n, r = (sec.get("step_norm") or {}).get(kk), (sec.get("step_raw") or {}).get(kk)
+            if kk in e and n is not None and r is not None:
+                rows.append((s, e[kk], n, r))
+        if not rows:
+            continue
+        cell = {"n_splits": len(rows)}
+        for v in (R8_NAME, R8_BAG_NAME):
+            tuned = [x["cost_K"][v] for _, x, _, _ in rows]
+            norm = [n["test"][v]["cost"] for _, _, n, _ in rows]
+            raw = [r["test"][v]["cost"] for _, _, _, r in rows]
+            cell[v] = {"cost": {"step_raw": ms(raw), "step_norm": ms(norm), "R8_retuned": ms(tuned)},
+                       "normalization": sp.nb_ttest(np.subtract(norm, raw)),
+                       "retuning": sp.nb_ttest(np.subtract(tuned, norm)),
+                       "total": sp.nb_ttest(np.subtract(tuned, raw))}
+        out[kk] = cell
+    return out
+
+
+def summarize(per, Ks, primary_center=None, n_expected=len(SEEDS)):
+    out = {"by_K": {}, "C1": {}, "gate": {}, "secondary": {}, "attribution": {}, "compute": {}}
     for K in Ks:
         u = _units(per, str(K))
         if not u:
@@ -619,7 +821,12 @@ def summarize(per, Ks, primary_center=None):
                        "verdict_provisional": g["verdict_provisional"], "note": note}
     else:
         out["gate"] = {"primary_center": primary_center, "note": "chưa có trung tâm chính (cổng G1) "
-                       "hoặc trung tâm đó không có trong npz E1; xem C1 theo từng trung tâm. " + note}
+                       "hoặc trung tâm đó không có trong npz E1; xem C1 theo từng trung tâm. " + note,
+                       "n_splits": len(_units(per, str(PRIMARY_K)))}
+    # Cổng chỉ có giá trị kết luận trên đủ lần chia (như E4): chạy với --seeds con hoặc
+    # khi vài lần chia chưa xong thì verdict vẫn được tính, cờ này cho biết nó là tạm.
+    out["gate"]["n_expected"] = int(n_expected)
+    out["gate"]["complete"] = bool(out["gate"]["n_splits"] == n_expected)
 
     sec = _units(per, "secondary")
     fams = {}
@@ -628,25 +835,28 @@ def summarize(per, Ks, primary_center=None):
             for prm, v in d.items():
                 fams.setdefault(fam, {}).setdefault(prm, []).append((s, v))
     for fam, d in fams.items():
-        fs = {"label": "thứ cấp: chỉ chuẩn hoá, không dò lại; chấm bằng chi phí của chính họ",
-              "params": {}, "C1": {}}
+        fs = {"label": SECONDARY_LABELS.get(fam, "thứ cấp"), "params": {}, "C1": {}}
         for prm, rows in d.items():
             fs["params"][prm] = {v: {"cost": ms([x["test"][v]["cost"] for _, x in rows]),
                                      "All": ms([x["test"][v]["region_rmse"]["All"] for _, x in rows])}
                                  for v in (R8_NAME, R8_BAG_NAME)}
-        cs = sorted({c for rows in d.values() for _, x in rows for c in x["centers"]})
+        cs = sorted({c for rows in d.values() for _, x in rows for c in x.get("centers", {})})
         for c in cs:
-            by = {prm: [(s, x["centers"][c]) for s, x in rows if c in x["centers"]] for prm, rows in d.items()}
+            by = {prm: [(s, x["centers"][c]) for s, x in rows if c in x.get("centers", {})]
+                  for prm, rows in d.items()}
             fs["C1"][c] = _contrast_table(by, {})
         out["secondary"][fam] = fs
+    out["attribution"] = attribution(per, Ks)
 
     k_units = [e for s in per.values() for k, e in s.items() if k != "secondary"]
-    wall = sum(e["tune_s"] + e["fit_s"] for e in k_units) + sum(e["fit_s"] for e in sec.values())
-    cpu = (sum(e["tune_cpu_s"] + e["fit_cpu_s"] for e in k_units)
+    k_wall = [e["tune_s"] + e.get("bag_es_s", 0.0) + e["fit_s"] for e in k_units]
+    wall = sum(k_wall) + sum(e["fit_s"] for e in sec.values())
+    cpu = (sum(e["tune_cpu_s"] + e.get("bag_es_cpu_s", 0.0) + e["fit_cpu_s"] for e in k_units)
            + sum(e["fit_cpu_s"] for e in sec.values()))
     out["compute"] = {"wall_h": wall / 3600, "cpu_h": cpu / 3600, "n_units_K": len(k_units),
-                      "wall_s_per_split_K": ms([e["tune_s"] + e["fit_s"] for e in k_units]),
-                      "note": "R8 cần n_cfg × CV_FOLDS lần khớp fold + n_bag lần khớp lại cho MỖI K; "
+                      "wall_s_per_split_K": ms(k_wall),
+                      "note": "R8 cần n_cfg × CV_FOLDS lần khớp fold, (n_bag - 1) × CV_FOLDS lần khớp "
+                              "fold cho thành viên bag, và n_bag lần khớp lại cho MỖI K; "
                               "tầng hậu kỳ dùng một trung tâm cho mọi K (thời gian trung tâm ở E1)"}
     return out
 
@@ -668,11 +878,23 @@ def print_summary(S):
                   f"p={nb['p']:.3g} {hol}; TOST {'qua' if t['tost']['passed'] else 'không qua'}; "
                   f"boot loại 0 ở {t['boot_excludes_zero']}/{t['n_splits']}")
     g = S["gate"]
-    print(f"\n[3] Cổng C1: {g.get('verdict_provisional', '-')} (trung tâm chính: {g.get('primary_center')})")
+    print(f"\n[3] Cổng C1: {g.get('verdict_provisional', '-')} (trung tâm chính: {g.get('primary_center')}); "
+          f"{'đủ' if g['complete'] else 'CHƯA đủ'} lần chia ({g['n_splits']}/{g['n_expected']})")
     for fam, fs in S["secondary"].items():
         print(f"\n[4] Thứ cấp, họ {fam} (chi phí của chính họ, R8 một mô hình / bag):")
         for prm, v in fs["params"].items():
             print(f"  {prm:6s} {f(v[R8_NAME]['cost'])} / {f(v[R8_BAG_NAME]['cost'])}")
+    if S["attribution"]:
+        print("\n[4b] Tách nguyên nhân (thứ cấp, ngoài C1; âm = vế trái tốt hơn): "
+              "chuẩn hoá = norm - raw, dò lại = R8 - norm")
+        for K, cell in S["attribution"].items():
+            parts = []
+            for v in (R8_NAME, R8_BAG_NAME):
+                a = cell[v]
+                parts.append(f"{v}: raw {a['cost']['step_raw']['mean']:.3f} -> norm "
+                             f"{a['cost']['step_norm']['mean']:.3f} -> dò lại {a['cost']['R8_retuned']['mean']:.3f} "
+                             f"(chuẩn hoá {a['normalization']['mean']:+.3f}, dò lại {a['retuning']['mean']:+.3f})")
+            print(f"  K={K:3s} " + "; ".join(parts) + f"; {cell['n_splits']} lần chia")
     c = S["compute"]
     print(f"\n[5] Thời gian: {c['wall_h']:.2f} giờ đồng hồ, {c['cpu_h']:.2f} giờ CPU "
           f"({c['n_units_K']} đơn vị (lần chia, K))")
@@ -709,7 +931,7 @@ def parse_args(argv=None):
     ap.add_argument("--smoke", action="store_true",
                     help="1 lần chia, 2 cấu hình, bag 2, tối đa 50 cây: chỉ để kiểm mã")
     args = ap.parse_args(argv)
-    args.lambdas, args.phi_Ks = list(LDS_LAMBDAS), list(K_GRID)
+    args.lambdas, args.phi_Ks, args.step_Ks = list(LDS_LAMBDAS), list(K_GRID), list(K_GRID)
     if args.smoke:
         args.seeds = args.seeds[:1]
         args.n_cfg = SMOKE["n_cfg"] if args.n_cfg is None else args.n_cfg
@@ -718,6 +940,7 @@ def parse_args(argv=None):
         args.es_rounds = min(args.es_rounds, SMOKE["es_rounds"])
         args.boot_B = min(args.boot_B, SMOKE["boot_B"])
         args.lambdas, args.phi_Ks = list(SMOKE["lambdas"]), list(SMOKE["phi_Ks"])
+        args.step_Ks = list(SMOKE["step_Ks"])
     if args.workers < 1 or args.n_bag < 1:
         ap.error("--workers và --n-bag phải >= 1")
     return args
@@ -732,18 +955,28 @@ def main(argv=None):
               "data_sha256": preds_io.file_sha256(args.data), "e1_tag": args.e1_tag,
               "feature_set": args.feature_set, "n_cfg": args.n_cfg, "max_trees": args.max_trees,
               "es_rounds": args.es_rounds, "n_bag": args.n_bag, "boot_B": args.boot_B,
-              "lambdas": args.lambdas, "phi_Ks": args.phi_Ks, "secondary_from": args.secondary_from,
+              "lambdas": args.lambdas, "phi_Ks": args.phi_Ks, "step_Ks": args.step_Ks,
+              "secondary_from": args.secondary_from,
               "smoke": bool(args.smoke), "cv_folds": CV_FOLDS}
     fp = preds_io.fingerprint(config)
     res = preds_io.load_partial(args.out + ".partial", fp, {"per_split": {}})
+    n_old = sweep_memmaps(args.preds_dir)
+    if n_old:
+        print(f"Đã xoá {n_old} thư mục memmap cũ trong {args.preds_dir} (lượt chạy trước bị ngắt)", flush=True)
     F = features.load_frame(args.data)
     print(f"{args.data}: n={F.n}; lần chia {args.seeds}; K {args.Ks}; workers {args.workers}, "
           f"luồng XGBoost {args.threads or splits.xgb_threads(args.workers)}; dấu {fp[:12]}", flush=True)
     t0 = time.time()
-    for s in args.seeds:
-        run_seed(F, s, args, fp, res)
+    try:
+        for s in args.seeds:
+            run_seed(F, s, args, fp, res)
+    finally:
+        # run_seed đã dọn thư mục của từng lần chia; quét lại phòng khi lỗi giữa chừng
+        sweep_memmaps(args.preds_dir, only_pid=os.getpid())
     per = {str(s): res["per_split"][str(s)] for s in args.seeds if str(s) in res["per_split"]}
-    res["summary"] = summarize(per, args.Ks, args.primary_center)
+    # Đủ lần chia: 10 seed của gates.SEEDS, hoặc số seed của --smoke (1)
+    n_expected = len(args.seeds) if args.smoke else len(SEEDS)
+    res["summary"] = summarize(per, args.Ks, args.primary_center, n_expected)
     res["meta"].update({
         "experiment": "E2b", "protocol": (
             "Lần chia, fold, tập dừng sớm và bảng cấu hình của E1; mỗi K (bậc thang đối xứng, đuôi "
@@ -757,6 +990,7 @@ def main(argv=None):
         "e1_preds_dir": args.e1_preds_dir, "e1_tag": args.e1_tag, "preds_dir": args.preds_dir,
         "primary_center": args.primary_center, "secondary_from": args.secondary_from,
         "secondary_lambdas": args.lambdas, "secondary_phi_Ks": args.phi_Ks,
+        "secondary_step_Ks": args.step_Ks,
         "workers": args.workers, "threads": args.threads, "smoke": bool(args.smoke),
         "run_wall_s": time.time() - t0, "config": config, "provenance": provenance.stamp()})
     print_summary(res["summary"])
