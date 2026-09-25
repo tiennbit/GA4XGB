@@ -27,6 +27,7 @@ Giai đoạn 2 (trên tập chính): rs_tuned từ 60 cấu hình splits.sample_
   nhất). Khớp lại CẢ 60 cấu hình trên toàn tập huấn luyện với số cây
   int(trung vị(best_iteration + 1)) cho oracle của E4. rs_tuned_bag5: cấu hình được
   chọn với random_state 0..4, lấy trung bình.
+  OOF mà R1 (và mọi quy tắc hậu kỳ) khớp trên: xem lựa chọn 12.
 
 Các lựa chọn khi khung bài không nói rõ (chọn cách đơn giản, ghi lại ở đây):
  1. Bố cục npz trong --preds-dir (mặc định preds/decomp, ngoài src/ và results_cost/):
@@ -56,7 +57,8 @@ Các lựa chọn khi khung bài không nói rõ (chọn cách đơn giản, ghi
  7. fit_s, oof_s, tune_s là giây tính toán của từng lần fit (không gồm predict) ở
     `threads` luồng, cộng lại; không phải giờ đồng hồ. tune_s của rs_tuned là tổng
     thời gian 60 × 5 lần fit dừng sớm (phần khớp lại 60 cấu hình phục vụ E4, không
-    tính vào chi phí dò).
+    tính vào chi phí dò). oof_s của rs_tuned và rs_tuned_bag5 = fit dừng sớm + khớp
+    lại fold (lựa chọn 12); riêng phần khớp lại fold ghi ở oof_refit_s.
  8. Bootstrap cụm theo trường (2.000 lần) cho C3 và Bảng III tính trong summary từ
     npz; không có npz (ví dụ JSON đã kéo về Mac) thì bỏ qua và ghi chú.
  9. JSON ghi NaN thành null để là JSON chuẩn (stats_paired.primary_holm nhận None).
@@ -64,6 +66,49 @@ Các lựa chọn khi khung bài không nói rõ (chọn cách đơn giản, ghi
     nghiệm trên Mac). Trên server (Linux) chạy bình thường.
 11. --smoke: một lần chia, 2 cấu hình, bag 2 (bag40 thành bag2, rs_tuned_bag2), tối đa
     50 cây, dừng sớm 10 vòng, bootstrap 200 lần. Tên trung tâm theo cỡ thật.
+12. OOF của rs_tuned và rs_tuned_bag5 (sửa theo phản biện E1/E2, #5). OOF dừng sớm
+    đến từ mô hình fold khớp trên `fit` (90% fold huấn luyện), trong khi default/bag
+    khớp trên fit ∪ es và ŷ test của mọi trung tâm đến từ mô hình khớp lại trên 100%
+    tập huấn luyện. Nếu R1 khớp trên OOF dừng sớm thì phần dư theo bin của rs_tuned
+    rộng hơn thật (mô hình yếu hơn), và cùng OOF đó vừa chọn cấu hình vừa khớp R1
+    (winner's curse): C3 bị lệch theo cả hai hướng không biết trước. Vì vậy:
+      - OOF dừng sớm (`oof_es`, `test_foldavg_es` trong npz; trace_oof cho 60 cấu hình)
+        CHỈ dùng để chọn cấu hình và lấy best_iteration.
+      - Với cấu hình được chọn (và từng thành viên b của rs_tuned_bag5), mỗi fold khớp
+        lại trên fit ∪ es với best_iteration + 1 cây CỦA FOLD ĐÓ, cùng random_state,
+        dự đoán fold giữ lại: đó là `oof[rs_tuned]` mà R1 và mọi quy tắc hậu kỳ khớp
+        trên, và `test_foldavg[rs_tuned]` là trung bình dự đoán test của chính các mô
+        hình này. Cùng quy trình với lần khớp lại ngoài (số cây chọn bằng dừng sớm rồi
+        khớp trên toàn bộ phần huấn luyện), và cùng lượng dữ liệu với OOF của bag.
+      - Không rò rỉ: tập dừng sớm là con của fold huấn luyện, fold giữ lại không bao
+        giờ vào khớp hay dừng sớm. Chọn cấu hình vẫn nhìn fold giữ lại (qua OOF dừng
+        sớm) nên phần winner's curse chỉ giảm chứ không mất; E5 có thể so hai OOF.
+      Lược đồ tương thích ngược: khoá `oof`, `test_foldavg` giữ nghĩa "OOF để khớp quy
+      tắc" cho E2, E2b, E3, E4, E5, E9; khoá mới `oof_es`, `test_foldavg_es` chỉ có
+      cho hai trung tâm rs. trace_oof[rs_tuned_index] vì thế KHÁC oof["rs_tuned"].
+13. Cổng E0b (#1): đọc --data-audit (mặc định results_cost/data_audit.json). Nếu
+    gates.group_split_required hoặc gates.stop_E1_until_IDT là true thì dừng: script
+    này chưa có đường chia theo nhóm. Không có file thì chỉ cảnh báo (kiểm thử khói);
+    file của dữ liệu khác (data_sha256 lệch) thì dừng, trừ --smoke. sha256 file và giá
+    trị cổng ghi vào meta.data_audit (không vào dấu: chạy lại E0b cùng kết quả không
+    được làm mất giờ khớp của E1).
+14. Đủ lần chia (#3): C3 và G1 chỉ "cuối" khi số lần chia có số bằng len(gates.SEEDS)
+    (--smoke: số lần chia khói). Thiếu thì C3 được coi là vắng trong Holm chính (p = 1,
+    bảo thủ), G1 ghi splits_complete = false kèm danh sách phép so thiếu; E2 từ chối
+    đọc vai trò tự động từ G1 như vậy.
+15. Ghi chú thiết kế (không phải lỗi mã, ghi để người đọc biết):
+    - Nhánh rs_tuned_bag5 của G1 dùng Holm riêng m = 2 (lựa chọn 6); khung bài chỉ nói
+      "cùng điều kiện", chưa chốt họ.
+    - G1 tạm chọn trung tâm chính, rồi C1 (E2b) và C2 (E2) tính trên trung tâm đó. Khi
+      đủ họ, Holm cuối có thể lật G1; không mã nào tự kiểm lại, phải chạy lại E1
+      summary (và E2, E2b nếu trung tâm đổi).
+    - B* và cổng tập đặc trưng chọn theo thước đo trên tập kiểm tra, rồi cùng tập kiểm
+      tra dùng cho suy luận C3 (khung bài cho phép; lệch nhỏ vì B* chọn theo độ gần
+      bag40, không theo tốt nhất).
+    - Dấu gồm code_sha256 của MỌI module src/ đang import (kể cả phần tóm tắt): sửa
+      một dòng in ấn cũng làm mọi npz lệch dấu. Đừng dùng --on-mismatch recompute với
+      một phần --seeds rồi để E2 đọc cả thư mục: E2 giờ từ chối npz lệch dấu giữa các
+      lần chia.
 
 Chạy tiếp sau khi bị ngắt: npz theo (lần chia, tập) và JSON dở dang
 <out>.phase1.partial, <out>.phase2.partial mang dấu preds_io.fingerprint (cấu hình +
@@ -106,6 +151,11 @@ TIMING_REF = "F_full"              # chỉ để đo mất mát do ràng buộc 
 GATE_BASE, GATE_CHAIN = "F_dt", ["F_dt-cn", "F_dt-cn-bc"]
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 REAL_DATA = os.path.realpath(os.path.join(REPO, DATA_PATH))
+DEFAULT_AUDIT = "results_cost/data_audit.json"
+# Nguồn OOF mà R1 khớp trên cho rs_tuned, rs_tuned_bag5 (lựa chọn 12). Ghi vào dấu
+# giai đoạn 2 và meta để npz trước và sau lần sửa không bao giờ bị trộn.
+OOF_SOURCE = "fold_refit_fit_es_best_iter_plus_1"
+RS_ES_KEYS = ("oof_es", "test_foldavg_es")
 
 
 @dataclass(frozen=True)
@@ -307,7 +357,10 @@ def phase1_centers(fset, bud):
     return ["default", "sub1"] + [f"bag{B}" for B in bud.bag_sizes]
 
 
-def fit_phase1(F, seed, fset, bud, par, threads, fp):
+def fit_phase1(F, seed, fset, bud, par, threads, fp, run_meta=None):
+    """run_meta: {smoke, data_sha256, ...} ghi thẳng vào meta npz. Hai giá trị này đã
+    nằm trong dấu, nhưng dấu là băm một chiều: E2 cần đọc chúng ở dạng rõ để từ chối
+    npz khói hay npz của file dữ liệu khác mà không phải tính lại dấu của E1."""
     t0 = time.time()
     tr, te, plan = split_arrays(F, seed)
     y_tr, y_te = F.y[tr], F.y[te]
@@ -330,7 +383,7 @@ def fit_phase1(F, seed, fset, bud, par, threads, fp):
             "n_features": int(len(F.columns(fset))), "info": {c: cen[c]["info"] for c in names},
             "identical_centers": [["sub1", "bag1"]] if fset == EXT_FSET and 1 in bud.bag_sizes else [],
             "budget": asdict(bud), "threads": int(threads), "fingerprint": fp,
-            "wall_s": time.time() - t0, "provenance": provenance.stamp()}
+            "wall_s": time.time() - t0, "provenance": provenance.stamp()} | (run_meta or {})
     return dict(idx_tr=tr, idx_te=te, y_tr=y_tr, y_te=y_te, fold_of=splits.fold_of(plan, len(tr)),
                 school_code=F.school_code, prov_code=F.prov_code,
                 oof={c: cen[c]["oof"] for c in names}, test={c: cen[c]["test"] for c in names},
@@ -340,9 +393,35 @@ def fit_phase1(F, seed, fset, bud, par, threads, fp):
 # ---------------------------------------------------------------------------
 # Giai đoạn 2
 # ---------------------------------------------------------------------------
-def fit_phase2(F, seed, fset, bud, par, threads, fp, p1d):
+def fold_refit_specs(tag, plan, D, cfg, rs, best_iter, threads):
+    """Khớp lại mô hình fold trên fit ∪ es với best_iteration + 1 cây của CHÍNH fold đó
+    (lựa chọn 12): cùng quy trình với lần khớp lại ngoài, cùng lượng dữ liệu với OOF
+    của default/bag. Tập dừng sớm là con của fold huấn luyện nên fold giữ lại vẫn chưa
+    bao giờ được nhìn."""
+    return [((tag, rs, f["fold"]), es_weight(cfg, int(best_iter[f["fold"]]) + 1),
+             (Dk["a"], Dk["y_a"], [Dk["va"], Dk["te"]],
+              cfg | {"random_state": int(rs), "n_estimators": int(best_iter[f["fold"]]) + 1}, threads))
+            for f, Dk in zip(plan, D)]
+
+
+def collect_fold_refit(res, tag, rs, plan, n_tr, n_te):
+    """(OOF, trung bình dự đoán test của mô hình fold, giây fit) từ fold_refit_specs."""
+    oof, fa, secs = np.full(n_tr, np.nan), np.zeros(n_te), 0.0
+    for f in plan:
+        _, (p_va, p_te), s = res[(tag, rs, f["fold"])]
+        oof[f["va"]] = p_va
+        fa += np.asarray(p_te, float) / len(plan)
+        secs += s
+    assert np.all(np.isfinite(oof)), "OOF khớp lại fold còn vị trí trống"
+    return oof, fa, float(secs)
+
+
+def fit_phase2(F, seed, fset, bud, par, threads, fp, p1d, run_meta=None):
     """Vết n_configs cấu hình, rs_tuned, rs_tuned_bag5 (và sub1, bag B nếu tập chính
-    không phải F_dt), gộp với các trung tâm giai đoạn 1 của tập chính."""
+    không phải F_dt), gộp với các trung tâm giai đoạn 1 của tập chính.
+
+    OOF dừng sớm chỉ để chọn cấu hình; OOF lưu ở `oof` cho hai trung tâm rs là OOF của
+    mô hình fold khớp lại trên fit ∪ es (lựa chọn 12). OOF dừng sớm lưu ở `oof_es`."""
     t0 = time.time()
     tr, te, plan = split_arrays(F, seed)
     assert np.array_equal(tr, p1d["idx_tr"]) and np.array_equal(te, p1d["idx_te"]), \
@@ -355,14 +434,14 @@ def fit_phase2(F, seed, fset, bud, par, threads, fp, p1d):
     need_bag = "sub1" not in p1d["test"]
 
     # Ma trận của fold: hàng huấn luyện (fit ∪ es) quyết định tần suất trường, như
-    # tests/make_fake_preds.py. Ma trận "train" chỉ giữ khi cần khớp bag không dừng sớm.
+    # tests/make_fake_preds.py. Ma trận "train" (fit ∪ es) luôn giữ: khớp lại fold của
+    # cấu hình được chọn (lựa chọn 12) và bag không dừng sớm đều khớp trên nó.
     D = []
     for f in plan:
         Xa, Xfit, Xes, Xva, Xte_f = F.design(fset, tr[f["train"]], tr[f["fit"]], tr[f["es"]],
                                              tr[f["va"]], te)
-        D.append({"a": Xa if need_bag else None, "fit": Xfit, "es": Xes, "va": Xva, "te": Xte_f,
+        D.append({"a": Xa, "fit": Xfit, "es": Xes, "va": Xva, "te": Xte_f, "y_a": y[tr[f["train"]]],
                   "y_fit": y[tr[f["fit"]]], "y_es": y[tr[f["es"]]]})
-        del Xa
     Xtr, Xte = F.design(fset, tr, te)
     es_arg = lambda Dk: (Dk["es"], Dk["y_es"], bud.max_trees, bud.es_rounds)  # noqa: E731
 
@@ -391,10 +470,12 @@ def fit_phase2(F, seed, fset, bud, par, threads, fp, p1d):
     jb = int(np.argmin(t_rmse))
     cfg_b = configs[jb]
 
-    # Lượt B: khớp lại cả 60 cấu hình + mô hình fold của thành viên bag 1..r8_bag-1
+    # Lượt B: khớp lại cả 60 cấu hình + khớp lại fold của cấu hình được chọn (lựa chọn
+    # 12) + mô hình fold dừng sớm của thành viên bag 1..r8_bag-1
     specs = [(("refit", j), es_weight(cfg, n_trees[j]),
               (Xtr, y_tr, [Xte], cfg | {"random_state": 0, "n_estimators": int(n_trees[j])}, threads))
              for j, cfg in enumerate(configs)]
+    specs += fold_refit_specs("fold_refit", plan, D, cfg_b, 0, best_iter[jb], threads)
     for b in range(1, bud.r8_bag):
         for f, Dk in zip(plan, D):
             specs.append((("bag_es", b, f["fold"]), es_weight(cfg_b),
@@ -406,42 +487,55 @@ def fit_phase2(F, seed, fset, bud, par, threads, fp, p1d):
     for j in range(len(configs)):
         _, (p,), fit_s[j] = res[("refit", j)]
         t_test[j] = p
-    mem = [{"oof": t_oof[jb], "test": t_test[jb], "foldavg": t_te_f[jb], "best_iter": best_iter[jb],
-            "n_trees": int(n_trees[jb]), "oof_s": float(es_s[jb].sum()), "fit_s": float(fit_s[jb])}]
+    oof0, fa0, rs0 = collect_fold_refit(res, "fold_refit", 0, plan, n_tr, n_te)
+    mem = [{"oof": oof0, "foldavg": fa0, "oof_es": t_oof[jb], "foldavg_es": t_te_f[jb],
+            "test": t_test[jb], "best_iter": best_iter[jb], "n_trees": int(n_trees[jb]),
+            "oof_s": float(es_s[jb].sum()) + rs0, "oof_refit_s": rs0, "fit_s": float(fit_s[jb])}]
     for b in range(1, bud.r8_bag):
-        m = {"oof": np.zeros(n_tr), "foldavg": np.zeros(n_te), "best_iter": np.zeros(nf, np.int32),
+        m = {"oof_es": np.zeros(n_tr), "foldavg_es": np.zeros(n_te), "best_iter": np.zeros(nf, np.int32),
              "oof_s": 0.0}
         for f in plan:
             bi, (p_va, p_te), secs = res[("bag_es", b, f["fold"])]
             m["best_iter"][f["fold"]] = bi
-            m["oof"][f["va"]] = p_va
-            m["foldavg"] += np.asarray(p_te, float) / nf
+            m["oof_es"][f["va"]] = p_va
+            m["foldavg_es"] += np.asarray(p_te, float) / nf
             m["oof_s"] += secs
         m["n_trees"] = int(np.median(m["best_iter"] + 1))
         mem.append(m)
 
-    # Lượt C: khớp lại thành viên bag 1..r8_bag-1 với số cây của chính nó
+    # Lượt C: khớp lại thành viên bag 1..r8_bag-1 với số cây của chính nó, và khớp lại
+    # fold của chúng trên fit ∪ es với best_iteration + 1 của từng fold (lựa chọn 12)
     specs = [(("bag_refit", b), es_weight(cfg_b, mem[b]["n_trees"]),
               (Xtr, y_tr, [Xte], cfg_b | {"random_state": b, "n_estimators": mem[b]["n_trees"]}, threads))
              for b in range(1, bud.r8_bag)]
+    for b in range(1, bud.r8_bag):
+        specs += fold_refit_specs("fold_refit", plan, D, cfg_b, b, mem[b]["best_iter"], threads)
     res = run_tasks(par, specs) if specs else {}
     for b in range(1, bud.r8_bag):
         _, (p,), mem[b]["fit_s"] = res[("bag_refit", b)]
         mem[b]["test"] = np.asarray(p, float)
+        mem[b]["oof"], mem[b]["foldavg"], rsb = collect_fold_refit(res, "fold_refit", b, plan, n_tr, n_te)
+        mem[b]["oof_s"] += rsb
+        mem[b]["oof_refit_s"] = rsb
 
     tune_s = float(es_s.sum())
-    new = {"rs_tuned": {"oof": t_oof[jb].copy(), "test": t_test[jb].copy(), "foldavg": t_te_f[jb].copy(),
-                        "info": {"fit_s": float(fit_s[jb]), "oof_s": float(es_s[jb].sum()), "tune_s": tune_s,
-                                 "best_params": cfg_b, "best_iter": best_iter[jb].tolist(),
-                                 "n_trees": int(n_trees[jb]), "config_index": jb}},
-           bud.rs_bag: {"oof": np.mean([m["oof"] for m in mem], axis=0),
-                        "test": np.mean([m["test"] for m in mem], axis=0),
-                        "foldavg": np.mean([m["foldavg"] for m in mem], axis=0),
+    avg = lambda key: np.mean([m[key] for m in mem], axis=0)  # noqa: E731
+    new = {"rs_tuned": {"oof": oof0.copy(), "test": t_test[jb].copy(), "foldavg": fa0.copy(),
+                        "oof_es": t_oof[jb].copy(), "foldavg_es": t_te_f[jb].copy(),
+                        "info": {"fit_s": float(fit_s[jb]), "oof_s": mem[0]["oof_s"], "oof_refit_s": rs0,
+                                 "tune_s": tune_s, "best_params": cfg_b, "best_iter": best_iter[jb].tolist(),
+                                 "n_trees": int(n_trees[jb]), "config_index": jb, "oof_source": OOF_SOURCE,
+                                 "oof_es_rmse": rmse(y_tr, t_oof[jb])}},
+           bud.rs_bag: {"oof": avg("oof"), "test": avg("test"), "foldavg": avg("foldavg"),
+                        "oof_es": avg("oof_es"), "foldavg_es": avg("foldavg_es"),
                         "info": {"fit_s": float(sum(m["fit_s"] for m in mem)),
-                                 "oof_s": float(sum(m["oof_s"] for m in mem)), "tune_s": tune_s,
+                                 "oof_s": float(sum(m["oof_s"] for m in mem)),
+                                 "oof_refit_s": float(sum(m["oof_refit_s"] for m in mem)), "tune_s": tune_s,
                                  "best_params": cfg_b | {"random_state": list(range(bud.r8_bag))},
                                  "best_iter": [np.asarray(m["best_iter"]).tolist() for m in mem],
-                                 "n_trees": [int(m["n_trees"]) for m in mem], "config_index": jb}}}
+                                 "n_trees": [int(m["n_trees"]) for m in mem], "config_index": jb,
+                                 "oof_source": OOF_SOURCE, "oof_es_rmse": rmse(y_tr, avg("oof_es"))}}}
+    rs_names = ["rs_tuned", bud.rs_bag]
     if need_bag:
         folds = [(Dk["a"], Dk["va"], Dk["te"]) for Dk in D]
         bmem = fit_plain_members(F, fset, tr, te, plan,
@@ -465,14 +559,34 @@ def fit_phase2(F, seed, fset, bud, par, threads, fp, p1d):
             "trace_timing": {"es_s": es_s.tolist(), "fit_s": fit_s.tolist()},
             "budget": asdict(bud), "threads": int(threads), "fingerprint": fp,
             "phase1_fingerprint": p1m.get("fingerprint"), "wall_s": time.time() - t0,
-            "provenance": provenance.stamp()}
+            # oof[rs] là OOF khớp lại fold; oof_es[rs] là OOF dừng sớm đã dùng để chọn cấu
+            # hình, cũng là trace_oof[rs_tuned_index] (lựa chọn 12)
+            "oof_source": {c: (OOF_SOURCE if c in rs_names else "fold_fit_es_no_early_stop") for c in names},
+            "es_oof_keys": {k: rs_names for k in RS_ES_KEYS},
+            "provenance": provenance.stamp()} | (run_meta or {})
     return dict(idx_tr=tr, idx_te=te, y_tr=y_tr, y_te=y_te, fold_of=p1d["fold_of"],
                 school_code=F.school_code, prov_code=F.prov_code,
                 oof={c: get("oof", c, "oof") for c in names},
                 test={c: get("test", c, "test") for c in names},
                 test_foldavg={c: get("test_foldavg", c, "foldavg") for c in names},
+                oof_es={c: new[c]["oof_es"] for c in rs_names},
+                test_foldavg_es={c: new[c]["foldavg_es"] for c in rs_names},
                 trace_oof=t_oof, trace_test=t_test, trace_test_foldavg=t_te_f,
                 trace_best_iter=best_iter, trace_n_trees=n_trees, trace_oof_rmse=t_rmse, meta=meta)
+
+
+def validate_e1(d):
+    """preds_io.validate_split cộng phần riêng của E1 mà preds_io không biết: oof_es,
+    test_foldavg_es (lựa chọn 12) phải đủ dài, hữu hạn và chỉ cho trung tâm có trong test."""
+    err = preds_io.validate_split(d)
+    n = {"oof_es": len(d["idx_tr"]), "test_foldavg_es": len(d["idx_te"])}
+    for part in RS_ES_KEYS:
+        for c, a in d.get(part, {}).items():
+            if c not in d["test"]:
+                err.append(f"{part}[{c}]: trung tâm không có trong test")
+            if len(a) != n[part] or not np.all(np.isfinite(a)):
+                err.append(f"{part}[{c}] dài {len(a)} (cần {n[part]}) hoặc có NaN/inf")
+    return err
 
 
 def trace_json(d):
@@ -541,7 +655,8 @@ def _describe(per, seeds, fsets, ks=E1_KS):
         cs = sorted({c for s in seeds for c in per.get(str(s), {}).get(fs, {})})
         for c in cs:
             row = {}
-            for key in ("all_rmse", "r2", "sd_ratio", "calib_slope", "oof_rmse", "fit_s", "tune_s"):
+            for key in ("all_rmse", "r2", "sd_ratio", "calib_slope", "oof_rmse", "oof_es_rmse", "fit_s",
+                        "tune_s"):
                 row[key] = _ms(vals(per, seeds, fs, c, key))
             for reg in ("Low tail", "Middle", "High tail", "Tails"):
                 row[f"rmse_{reg}"] = _ms(vals(per, seeds, fs, c, "region_rmse", reg))
@@ -607,8 +722,9 @@ def _cond(nb_mean, p):
     return bool(np.isfinite(nb_mean) and np.isfinite(p) and nb_mean <= -SESOI and p < ALPHA)
 
 
-def summarize(per, trace, seeds, bud, primary, gate, preds_dir, boot=True):
-    S = {"centers": _describe(per, seeds, features.FEATURE_SETS)}
+def summarize(per, trace, seeds, bud, primary, gate, preds_dir, boot=True, n_ref=len(SEEDS)):
+    """n_ref: số lần chia để C3, G1 là "cuối" (len(gates.SEEDS); --smoke: số lần chia khói)."""
+    S = {"centers": _describe(per, seeds, features.FEATURE_SETS), "n_ref": int(n_ref)}
     S["feature_gate"] = gate
     bs = b_star(per, seeds, bud)
     if bs["B_star"] is None and primary != EXT_FSET:
@@ -617,6 +733,7 @@ def summarize(per, trace, seeds, bud, primary, gate, preds_dir, boot=True):
         alt = b_star(per, seeds, bud, fset=primary)
         if alt["B_star"] is not None:
             bs = alt | {"fallback": f"không có bag{bud.bag_max} trên {EXT_FSET}; B* tính trên {primary}"}
+    bs["complete"] = all(r["n"] == n_ref for r in bs["by_B"].values())
     S["b_star"] = bs
 
     # Ràng buộc thời điểm: F_dt so với F_full (chỉ để đo mất mát, mục 5.1)
@@ -661,7 +778,11 @@ def summarize(per, trace, seeds, bud, primary, gate, preds_dir, boot=True):
     d3 = vals(per, seeds, primary, "rs_tuned", *r1k(K)) - vals(per, seeds, primary, bstar, *r1k(K))
     c3 = {"desc": f"cost_{K}(R1, rs_tuned) - cost_{K}(R1, {bstar}) trên {primary}", "B_star": Bs,
           "diffs": d3.tolist(), **sp.paired(d3)}
-    c3["primary_holm_provisional"] = sp.primary_holm({"C3": c3["nb"]["p"]})["C3"]
+    # Lựa chọn 14: C3 thiếu lần chia (nb bỏ NaN nên n tự co) không được vào Holm chính
+    # như một phép so đủ; coi là vắng (p = 1) và gắn nhãn tạm.
+    c3 |= {"n_ref": int(n_ref), "final": bool(c3["nb"]["n"] == n_ref)}
+    c3["status"] = "final" if c3["final"] else f"provisional: {c3['nb']['n']}/{n_ref} lần chia"
+    c3["primary_holm_provisional"] = sp.primary_holm({"C3": c3["nb"]["p"]} if c3["final"] else {})["C3"]
     if bt is not None:
         c3["cluster_boot"] = bt.contrast(seeds, (primary, "rs_tuned"), (primary, bstar), K)
     S["C3"] = c3
@@ -673,7 +794,14 @@ def summarize(per, trace, seeds, bud, primary, gate, preds_dir, boot=True):
         g5[name] = {"diffs": d.tolist(), **sp.paired(d)}
     for name, ph in zip(list(g5), sp.holm([g5[n]["nb"]["p"] for n in g5])):
         g5[name]["p_holm_m2"] = ph
-    bag5_wins = all(_cond(g["nb"]["mean"], g["p_holm_m2"]) for g in g5.values())
+    # Lựa chọn 14: mọi phép so mà G1 dựa vào phải đủ n_ref lần chia (cổng tập đặc trưng,
+    # B*, C3, hai phép so của rs_tuned_bag5); thiếu thì G1 vẫn tính nhưng không "cuối".
+    incomplete = [f"feature_gate {st['compare']}" for st in gate.get("steps", []) if st["nb"]["n"] != n_ref]
+    incomplete += [f"B* bag{B}" for B, r in bs["by_B"].items() if r["n"] != n_ref]
+    incomplete += ([] if c3["final"] else ["C3"])
+    incomplete += [n for n, g in g5.items() if g["nb"]["n"] != n_ref]
+    bag5_wins = (all(_cond(g["nb"]["mean"], g["p_holm_m2"]) for g in g5.values())
+                 and all(g["nb"]["n"] == n_ref for g in g5.values()))
     c3_wins = _cond(c3["nb"]["mean"], c3["primary_holm_provisional"]["p_holm"])
     center = bud.rs_bag if bag5_wins else ("rs_tuned" if c3_wins else bstar)
     wording = None
@@ -683,6 +811,7 @@ def summarize(per, trace, seeds, bud, primary, gate, preds_dir, boot=True):
     S["G1"] = {"provisional": True, "primary_center": center, "feature_set": primary,
                "bag_Bstar": bstar, "rs_tuned_wins_C3": c3_wins, "rs_bag_wins_both": bag5_wins,
                "rs_bag_contrasts": g5, "wording_if_bag": wording,
+               "splits_complete": not incomplete, "n_ref": int(n_ref), "incomplete": incomplete,
                "note": "C1, C2 chưa có: primary_holm coi p = 1 nên Holm tạm ≥ Holm cuối; tính lại khi đủ họ"}
     S["trace"] = {"n_capped": _ms([t["n_capped"] for t in trace.values()]),
                   "rs_tuned_index": {s: t["rs_tuned_index"] for s, t in trace.items()},
@@ -720,9 +849,13 @@ def print_summary(S, bud, primary):
     if "nb" in S.get("C3", {}):
         c3, g1 = S["C3"], S["G1"]
         print(f"\n[6] C3 = {c3['desc']}: {c3['nb']['mean']:+.3f} (p {c3['nb']['p']:.3g}, "
-              f"Holm tạm {c3['primary_holm_provisional']['p_holm']:.3g}); TOST p {c3['tost']['p']:.3g}")
+              f"Holm tạm {c3['primary_holm_provisional']['p_holm']:.3g}); TOST p {c3['tost']['p']:.3g}; "
+              f"{c3['status']}" + ("" if c3["final"] else " -> coi là vắng trong Holm chính"))
         print(f"    G1 (tạm): trung tâm chính = {g1['primary_center']} trên {g1['feature_set']}"
               + (f"; '{g1['wording_if_bag']}'" if g1["wording_if_bag"] else ""))
+        if not g1["splits_complete"]:
+            print(f"    G1 CHƯA ĐỦ {g1['n_ref']} lần chia ở: {', '.join(g1['incomplete'])} "
+                  "(E2 sẽ không đọc vai trò tự động từ G1 này)")
     else:
         print(f"\n[6] C3, G1: {S.get('C3', {}).get('status')}")
 
@@ -738,6 +871,45 @@ def _nan_to_none(o):
 
 
 # ---------------------------------------------------------------------------
+def check_data_audit(path, data_sha, smoke):
+    """Cổng E0b (lựa chọn 13). Trả dict ghi vào meta.data_audit, hoặc dừng.
+
+    Vì sao dừng mà không tự chia theo nhóm: script này chưa có đường chia theo nhóm
+    (E0b trên dữ liệu thật: 0 nhóm trùng). Nếu một lần chạy E0b sau này ra khác, chạy
+    E1 bằng chia theo dòng sẽ để bản ghi trùng nằm hai phía test/huấn luyện, fold trong
+    và tập dừng sớm: cost test lạc quan, OOF (và R1) rò rỉ. Dừng rõ ràng tốt hơn ra số sai."""
+    if not os.path.exists(path):
+        print(f"[cảnh báo] không có {path} (E0b): KHÔNG kiểm được cổng chia theo nhóm. Chỉ chấp "
+              "nhận cho kiểm thử khói; lượt chạy khẳng định phải có data_audit.json.", flush=True)
+        return {"path": path, "status": "missing", "sha256": None, "group_split_required": None,
+                "stop_E1_until_IDT": None}
+    audit = preds_io.load_json(path)
+    g = audit.get("gates") or {}
+    a_sha = (audit.get("meta") or {}).get("data_sha256")
+    info = {"path": os.path.abspath(path), "status": "checked", "sha256": preds_io.file_sha256(path),
+            "audit_data_sha256": a_sha, "audit_smoke": (audit.get("meta") or {}).get("smoke"),
+            "group_split_required": g.get("group_split_required"),
+            "stop_E1_until_IDT": g.get("stop_E1_until_IDT"),
+            "exact_dup_groups": g.get("exact_dup_groups")}
+    if a_sha is not None and a_sha != data_sha:
+        msg = (f"{path} là kiểm toán của file dữ liệu khác (data_sha256 {str(a_sha)[:12]} khác "
+               f"{data_sha[:12]} của --data)")
+        if not smoke:
+            sys.exit(msg + ": chạy lại E0b trên đúng file, hoặc trỏ --data-audit tới file đúng.")
+        print(f"[cảnh báo] {msg}; --smoke nên chỉ ghi lại", flush=True)
+        info["status"] = "other_data"
+        return info
+    if "group_split_required" not in g:
+        sys.exit(f"{path} không có gates.group_split_required: không kiểm được cổng E0b.")
+    if g.get("group_split_required") or g.get("stop_E1_until_IDT"):
+        sys.exit(f"Cổng E0b ({path}): group_split_required = {g.get('group_split_required')}, "
+                 f"stop_E1_until_IDT = {g.get('stop_E1_until_IDT')} ({g.get('exact_dup_groups')} nhóm "
+                 "trùng chính xác). decomp_centers.py chưa có đường chia theo nhóm "
+                 "(splits.outer_split/fold_plan với groups=data_audit.record_groups): dừng E1, "
+                 "không chạy chia theo dòng trên dữ liệu có bản ghi trùng.")
+    return info
+
+
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--data", default=DATA_PATH)
@@ -754,6 +926,8 @@ def main(argv=None):
     ap.add_argument("--smoke", action="store_true")
     ap.add_argument("--no-boot", action="store_true", help="bỏ bootstrap cụm trong summary")
     ap.add_argument("--on-mismatch", choices=["raise", "recompute"], default="raise")
+    ap.add_argument("--data-audit", default=DEFAULT_AUDIT,
+                    help="JSON của E0b (data_audit.py); cổng chia theo nhóm đọc ở đây")
     args = ap.parse_args(argv)
 
     if platform.system() == "Darwin" and os.path.realpath(args.data) == REAL_DATA:
@@ -762,9 +936,14 @@ def main(argv=None):
     provenance.print_versions()
     t_start = time.time()
     seeds = args.seeds[:1] if args.smoke else list(args.seeds)
+    # Lựa chọn 14: số lần chia để C3, G1 là "cuối"
+    n_ref = len(seeds) if args.smoke else len(SEEDS)
     bud = make_budget(args.smoke, args.n_configs)
     threads = args.threads or splits.xgb_threads(args.workers)
     data_sha = preds_io.file_sha256(args.data)
+    audit = check_data_audit(args.data_audit, data_sha, args.smoke)
+    # smoke và data_sha256 ở dạng rõ trong meta npz để E2 đối chiếu (fit_phase1 docstring)
+    run_meta = {"smoke": bool(args.smoke), "data_sha256": data_sha}
     base_cfg = {"script": "decomp_centers", "data_sha256": data_sha, "smoke": bool(args.smoke),
                 "cv_folds": CV_FOLDS, "es_frac": ES_FRAC, "ks": E1_KS, "n_bins": N_BINS,
                 "n_samples": N_SAMPLES, "tail_mass": [TAIL_MASS_LOW, TAIL_MASS_HIGH]}
@@ -787,9 +966,9 @@ def main(argv=None):
             fresh = d is None
             if fresh:
                 t0 = time.time()
-                preds_io.save_split(path, **fit_phase1(F, seed, fset, bud, par, threads, fp1))
+                preds_io.save_split(path, **fit_phase1(F, seed, fset, bud, par, threads, fp1, run_meta))
                 d = preds_io.load_split(path)
-                err = preds_io.validate_split(d)
+                err = validate_e1(d)
                 assert not err, err
             entry = res1["per_split"].setdefault(str(seed), {})
             if fresh or fset not in entry:
@@ -826,7 +1005,8 @@ def main(argv=None):
             fp2 = preds_io.fingerprint(base_cfg | {"phase": 2, "feature_set": primary, "phase1": fp1,
                                                     "n_configs": bud.n_configs, "max_trees": bud.max_trees,
                                                     "es_rounds": bud.es_rounds, "r8_bag": bud.r8_bag,
-                                                    "bag_max": bud.bag_max, "bag_sizes": list(bud.bag_sizes)})
+                                                    "bag_max": bud.bag_max, "bag_sizes": list(bud.bag_sizes),
+                                                    "oof_source": OOF_SOURCE})
             res2 = preds_io.load_partial(p2_path, fp2, {"per_split": {}}, on_mismatch=args.on_mismatch)
             print(f"\nGiai đoạn 2 trên {primary} ({'--feature-set' if args.feature_set else 'cổng'}); "
                   f"{bud.n_configs} cấu hình, tối đa {bud.max_trees} cây, dừng sớm {bud.es_rounds} vòng",
@@ -838,9 +1018,9 @@ def main(argv=None):
                 fresh = d is None
                 if fresh:
                     t0 = time.time()
-                    preds_io.save_split(path, **fit_phase2(F, s, primary, bud, par, threads, fp2, p1d))
+                    preds_io.save_split(path, **fit_phase2(F, s, primary, bud, par, threads, fp2, p1d, run_meta))
                     d = preds_io.load_split(path)
-                    err = preds_io.validate_split(d)
+                    err = validate_e1(d)
                     assert not err, err
                 if fresh or str(s) not in res2["per_split"]:
                     res2["per_split"][str(s)] = {"feature_set": primary,
@@ -859,7 +1039,8 @@ def main(argv=None):
             fp2 = preds_io.fingerprint(base_cfg | {"phase": 2, "feature_set": primary, "phase1": fp1,
                                                     "n_configs": bud.n_configs, "max_trees": bud.max_trees,
                                                     "es_rounds": bud.es_rounds, "r8_bag": bud.r8_bag,
-                                                    "bag_max": bud.bag_max, "bag_sizes": list(bud.bag_sizes)})
+                                                    "bag_max": bud.bag_max, "bag_sizes": list(bud.bag_sizes),
+                                                    "oof_source": OOF_SOURCE})
             old = preds_io.load_json(p2_path)
             res2 = old if (old.get("meta") or {}).get("fingerprint") == fp2 else None
 
@@ -869,7 +1050,8 @@ def main(argv=None):
     for s, e in ((res2 or {}).get("per_split") or {}).items():
         per.setdefault(s, {}).setdefault(e["feature_set"], {}).update(e["centers"])
         trace[s] = e["trace"]
-    S = summarize(per, trace, seeds, bud, primary, gate, args.preds_dir, boot=not args.no_boot)
+    S = summarize(per, trace, seeds, bud, primary, gate, args.preds_dir, boot=not args.no_boot,
+                  n_ref=n_ref)
     print_summary(S, bud, primary)
     meta = {"experiment": EXPERIMENT, "script": "decomp_centers",
             "protocol": "khung bài 24/9 mục 6.4; lần chia splits.outer_split (80/20), fold splits.fold_plan "
@@ -885,7 +1067,8 @@ def main(argv=None):
             "npz_layout": {"phase1": "split<seed>_p1_<tập>.npz", "merged": "split<seed>.npz (tập chính)"},
             "preds_dir": os.path.abspath(args.preds_dir), "npz_sha256": npz_sha,
             "fingerprints": {"phase1": fp1, "phase2": fp2}, "smoke": bool(args.smoke),
-            "data_sha256": data_sha, "wall_s": time.time() - t_start,
+            "data_sha256": data_sha, "data_audit": audit, "n_ref": n_ref, "oof_source": OOF_SOURCE,
+            "wall_s": time.time() - t_start,
             "provenance": provenance.stamp()}
     out = _nan_to_none({"meta": meta, "summary": S, "splits_info": res1["splits_info"],
                         "per_split": per, "trace": trace})

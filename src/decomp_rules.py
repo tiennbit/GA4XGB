@@ -49,9 +49,12 @@ Trong JSON, nb.wins đếm chênh ÂM theo quy ước của stats_paired; n_pos 
 
 Các lựa chọn khi khung bài chưa nói rõ (chọn cách đơn giản, đúng):
  1. Tên trung tâm: --primary/--bstar nhận tên trong npz, hoặc "auto" để đọc từ
-    results_cost/decomp_centers.json (tìm khoá primary_center và bstar_center/B_star;
-    B_star là số thì tên là bag<B>). Lược đồ JSON của E1 chưa chốt trong gates.py nên
-    "auto" là cố gắng tốt nhất; không tìm được thì dừng và yêu cầu truyền tên.
+    results_cost/decomp_centers.json. Trung tâm chính CHỈ lấy từ summary.G1.primary_center
+    (không dò khoá "primary" theo chiều sâu: summary.feature_gate.primary là tên TẬP
+    ĐẶC TRƯNG, từng bị lấy nhầm làm tên trung tâm). B* lấy từ G1.bag_Bstar, rồi mới dò
+    bstar_center/B_star (B_star là số thì tên là bag<B>). "auto" cũng dừng khi G1 ghi
+    splits_complete = false (G1 tính trên thiếu lần chia), hoặc khi JSON của E1 là
+    lượt khói mà E2 không chạy --smoke.
  2. Họ Holm thứ cấp của Bảng IV/V: mọi ô i, ii_a, ii_b, iii|Rx ở cả bốn K, TRỪ các ô
     trùng một phép so chính (iii|R5 ở K = 3 là -C2, iii|R8* ở K = 3 là -C1, i ở K = 3
     là -C3 khi trung tâm chính là rs_tuned). Khung bài ghi "ở K ∈ {2; 5; 8}" nhưng các
@@ -63,18 +66,34 @@ Các lựa chọn khi khung bài chưa nói rõ (chọn cách đơn giản, đú
     -(iii|R8*) ở K = 3 khi có wtrain_tuned.json; C3 = cost_3(R1, rs_tuned) -
     cost_3(R1, bag B*) tính từ chính npz khi có trung tâm rs_tuned. Phép so thiếu
     được coi p = 1 nên cổng G2 khi thiếu là bảo thủ và gắn cờ provisional.
+    Đủ lần chia: C1, C2, C3 chỉ vào Holm chính khi n = len(gates.SEEDS) (--smoke: số lần
+    chia khói). nb_ttest bỏ NaN nên n tự co khi wtrain_tuned.json hay .partial thiếu lần
+    chia; một phép so tính trên 6/10 lần chia không được đứng ngang phép so đủ. Thiếu thì
+    phép so được báo (per_split, nb) nhưng coi là vắng trong Holm (incomplete), và G2
+    gắn provisional kèm lý do.
  4. R8* (huấn luyện có trọng số đã dò lại, E2b) chỉ có cost_K theo lần chia trong
     wtrain_tuned.json, không có dự đoán, nên ô iii|R8* có NB và TOST nhưng không có
     bootstrap cụm hay số đổi cờ. Đọc ở bước tóm tắt: E2b xong sau E2 thì chạy lại
     script này, mọi lần chia lấy từ .partial và chỉ phần tóm tắt được tính lại.
     Không có file hoặc không tìm thấy giá trị thì ô để null kèm lý do.
+    Trước khi tính, mọi e1_npz_sha256 mà wtrain_tuned.json ghi cho các lần chia đang
+    chạy phải trùng sha256 của npz E1 mà E2 đọc (inputs[seed]); lệch thì dừng: E2b đã
+    khớp trên một bản dự đoán E1 khác, C1 sẽ trừ hai số của hai bản mã.
  5. Bootstrap cụm: cùng seed (seed của lần chia) cho mọi ô trong một lần chia, tức
     cùng các lần bốc trường (common random numbers), nên hai ô cùng lần chia so
     được với nhau. --smoke dùng B = 200.
- 6. Chạy tiếp: fingerprint gồm cấu hình và code_sha256, KHÔNG gồm danh sách seed hay
-    sha256 của npz (thêm seed vẫn chạy tiếp được). Thay vào đó mỗi lần chia ghi
-    sha256 npz của nó vào inputs[seed]; chạy tiếp mà npz đã đổi (E1 chạy lại) thì
-    báo lỗi, hoặc tính lại lần chia đó với --on-mismatch recompute.
+ 6. Chạy tiếp: fingerprint gồm cấu hình, code_sha256 và DẤU CỦA E1 (meta.fingerprint
+    của npz theo từng tag), KHÔNG gồm danh sách seed hay sha256 của npz (thêm seed vẫn
+    chạy tiếp được). Mỗi lần chia ghi sha256 npz của nó vào inputs[seed]; chạy tiếp mà
+    npz đã đổi (E1 chạy lại) thì báo lỗi, hoặc tính lại lần chia đó với --on-mismatch
+    recompute.
+    Nhất quán của E1 (trước mọi tính toán): npz của mọi lần chia phải cùng
+    meta.fingerprint, cùng cờ smoke và cùng data_sha256 (theo từng tag), và khớp
+    meta.fingerprints.phase1/phase2 của --centers-json khi file đó có. Vì sao: E1 chạy
+    lại với --on-mismatch recompute trên một phần --seeds để lại thư mục có hai bản mã;
+    E2 đọc cả thư mục sẽ trộn chúng mà không lỗi gì. npz khói (smoke = true) bị từ chối
+    khi E2 không chạy --smoke. npz không ghi smoke/data_sha256 (E1 trước 25/9, npz giả
+    của tests/make_fake_preds.py) chỉ được so dấu.
  7. --data chỉ ghi vào meta, không mở: mọi thứ E2 cần (y, mã trường) có trong npz.
  8. --tag nhận nhiều tag: nếu E1 để trung tâm ở nhiều file (ví dụ giai đoạn 1 và 2),
     các file được gộp sau khi kiểm idx_tr, idx_te, y khớp nhau.
@@ -89,8 +108,20 @@ Các lựa chọn khi khung bài chưa nói rõ (chọn cách đơn giản, đú
     K ∈ {1} ∪ K_GRID cho E3/E9 đọc đúng số của E2, khoá "<trung tâm>|<quy tắc>|<K>"
     (R0, R1_1, R6 chỉ ở K = 1). Không có thì E3 tự tính lại bằng decision_layer trên
     npz của E1 (cùng kết quả). Lần chia lấy từ .partial không được lưu lại.
+13. Cổng "(ii-a) quá nửa (ii)" chỉ có nghĩa khi (ii) > 0 (tầng quyết định CÓ lợi):
+    điều kiện là ii > 0 và ii_a > 0,5·ii. Tỉ số ii_a/ii với ii ≤ 0 đổi dấu vô nghĩa (dữ
+    liệu giả: ii = -0,079, ii_a = -0,424 cho tỉ số 5,4 và câu "phần lớn lợi ích là hiệu
+    chỉnh" dù tầng quyết định làm tệ đi); trường hợp đó báo riêng (ii_nonpositive).
+14. OOF của rs_tuned, rs_tuned_bag5 trong npz E1 là OOF khớp lại fold trên fit ∪ es
+    (decomp_centers, lựa chọn 12), không phải OOF dừng sớm; E2 dùng d["oof"] như cũ.
+15. Ghi chú thiết kế (không phải lỗi mã): trung tâm chính đọc từ G1 TẠM của E1 (C1, C2
+    lúc đó coi p = 1). C2 ở đây tính trên trung tâm đó; khi đủ họ, Holm cuối có thể
+    lật G1 và khi ấy phải chạy lại E2 trên trung tâm mới. B* và cổng tập đặc trưng
+    của E1 chọn theo tập kiểm tra rồi cùng tập kiểm tra dùng cho suy luận (khung bài
+    cho phép).
 """
 import argparse
+import json
 import os
 import sys
 import time
@@ -215,12 +246,14 @@ def resolve_roles(args):
     """{primary, bag_Bstar, default} là tên trung tâm trong npz; kèm nguồn của từng tên.
 
     "auto": đọc summary.G1 của decomp_centers.json (E1 ghi primary_center, bag_Bstar,
-    provisional ở đó). G1 thiếu khoá thì tìm theo chiều sâu các tên khoá hợp lý; B* là
+    provisional, splits_complete ở đó). Trung tâm chính chỉ lấy từ G1.primary_center
+    (lựa chọn 1). B* thiếu trong G1 thì tìm theo chiều sâu các tên khoá của B*; B* là
     số thì tên trung tâm là bag<B>, theo cách E1 đặt tên."""
     roles, src = {}, {}
     cj = g1 = None
     for role, val, g1key, keys in (
-            ("primary", args.primary, "primary_center", ["primary_center", "primary"]),
+            # Trung tâm chính: KHÔNG có danh sách dò theo chiều sâu (lựa chọn 1)
+            ("primary", args.primary, "primary_center", []),
             ("bag_Bstar", args.bstar, "bag_Bstar", ["bag_Bstar", "bstar_center", "B_star_center",
                                                     "B_star", "Bstar"])):
         if val != "auto":
@@ -232,8 +265,23 @@ def resolve_roles(args):
                 sys.exit(f"--{'primary' if role == 'primary' else 'bstar'} auto cần {args.centers_json} "
                          "(E1); chưa có thì truyền tên trung tâm, ví dụ --primary bag10 --bstar bag10")
             g1 = ((cj.get("summary") or {}).get("G1") or {})
+            e1_smoke = (cj.get("meta") or {}).get("smoke")
+            if e1_smoke and not args.smoke:
+                sys.exit(f"{args.centers_json} là lượt KHÓI của E1 (meta.smoke = true) mà E2 không chạy "
+                         "--smoke: không đọc vai trò từ đó; trỏ --centers-json tới JSON của lượt thật.")
+            if g1.get("splits_complete") is False:
+                sys.exit(f"summary.G1 trong {args.centers_json} tính trên thiếu lần chia "
+                         f"({g1.get('incomplete')}, cần {g1.get('n_ref')}): trung tâm chính chưa chốt. "
+                         "Chạy E1 đủ lần chia, hoặc truyền --primary/--bstar tay (ghi lý do).")
+            if "primary_center" in g1 and "splits_complete" not in g1:
+                print(f"  [cảnh báo] G1 trong {args.centers_json} không ghi splits_complete (E1 trước "
+                      "25/9): không kiểm được G1 có đủ lần chia", flush=True)
         v = g1.get(g1key) if isinstance(g1.get(g1key), (str, int)) else None
         where = "summary.G1"
+        if v is None and role == "primary":
+            sys.exit(f"summary.G1 trong {args.centers_json} không ghi primary_center (G1: "
+                     f"{g1.get('status', 'không có')}): E1 chưa chọn trung tâm chính. Chạy xong E1 "
+                     "giai đoạn 2, hoặc truyền --primary <tên trung tâm trong npz> tay.")
         if v is None:
             v, where = _find_key(cj, keys), "tìm theo khoá"
         if v is None:
@@ -242,9 +290,114 @@ def resolve_roles(args):
         roles[role] = f"bag{v}" if isinstance(v, int) else str(v)
         src[role] = f"{args.centers_json} {where}={v}"
     if g1:
-        src["G1"] = {k: g1.get(k) for k in ("provisional", "primary_center", "bag_Bstar", "feature_set")}
+        src["G1"] = {k: g1.get(k) for k in ("provisional", "primary_center", "bag_Bstar", "feature_set",
+                                             "splits_complete", "n_ref")}
     roles["default"], src["default"] = args.default_center, "argv"
     return roles, src
+
+
+# ---------------------------------------------------------------------------
+# Nhất quán của đầu vào E1 và E2b (lựa chọn 4, 6)
+# ---------------------------------------------------------------------------
+E1_SIG_KEYS = ("fingerprint", "smoke", "data_sha256")
+
+
+def npz_meta(path):
+    """meta của npz mà không nạp mảng (10 file × vài chục MB chỉ để đọc dấu)."""
+    with np.load(path, allow_pickle=False) as z:
+        return json.loads(str(z[preds_io.META_KEY])) if preds_io.META_KEY in z.files else {}
+
+
+def check_e1_inputs(preds_dir, seeds, tags, centers_json, smoke):
+    """Dấu E1 chung cho mọi lần chia, theo từng tag: {tag: {fingerprint, smoke, data_sha256}}.
+
+    Dừng (sys.exit) khi: hai lần chia có dấu/cờ khói/băm dữ liệu khác nhau ở cùng tag;
+    npz là lượt khói mà E2 không chạy --smoke; hoặc --centers-json có mặt và dấu npz
+    không phải meta.fingerprints.phase<1|2> của nó. Trả kèm nguồn đối chiếu để ghi meta."""
+    sig, first = {}, None
+    for s in seeds:
+        cur = {}
+        for t, p in zip(tags or [None], npz_paths(preds_dir, s, tags)):
+            m = npz_meta(p)
+            cur[str(t)] = {k: m.get(k) for k in E1_SIG_KEYS} | {"phase": m.get("phase")}
+        if first is None:
+            first, sig = s, cur
+            continue
+        for t, v in cur.items():
+            bad = [k for k in E1_SIG_KEYS if v.get(k) != sig[t].get(k)]
+            if bad:
+                sys.exit(f"npz E1 lệch giữa lần chia {first} và {s} (tag {t}) ở {bad}: "
+                         + "; ".join(f"{k}: {str(sig[t].get(k))[:12]} vs {str(v.get(k))[:12]}" for k in bad)
+                         + ". Thư mục có dự đoán của hai lượt E1 (mã, cấu hình, lượt khói hay file dữ "
+                           "liệu khác nhau): chạy lại E1 cho đủ mọi lần chia bằng cùng một mã.")
+    for t, v in sig.items():
+        if v.get("smoke") and not smoke:
+            sys.exit(f"npz E1 (tag {t}) là lượt KHÓI (meta.smoke = true) mà E2 không chạy --smoke.")
+    check = {"centers_json": None}
+    cj = preds_io.load_json(centers_json) if centers_json and os.path.exists(centers_json) else None
+    if cj is not None:
+        fps = (cj.get("meta") or {}).get("fingerprints") or {}
+        if not fps:
+            print(f"  [cảnh báo] {centers_json} không có meta.fingerprints: không đối chiếu được dấu npz",
+                  flush=True)
+            check["centers_json"] = "no_fingerprints"
+        else:
+            for t, v in sig.items():
+                ph = v.get("phase")
+                want = fps.get(f"phase{ph}") if ph in (1, 2) else None
+                ok = (v.get("fingerprint") == want) if want else (v.get("fingerprint") in set(fps.values()))
+                if not ok:
+                    sys.exit(f"npz E1 (tag {t}, giai đoạn {ph}) có dấu {str(v.get('fingerprint'))[:12]} khác "
+                             f"{centers_json} meta.fingerprints {({k: str(x)[:12] for k, x in fps.items()})}: "
+                             "vai trò/G1 đọc từ JSON này không mô tả các npz đang đọc.")
+            check["centers_json"] = {"path": os.path.abspath(centers_json), "fingerprints": fps}
+    return {t: {k: v.get(k) for k in E1_SIG_KEYS} for t, v in sig.items()}, check
+
+
+def _collect(obj, key, out):
+    """Mọi giá trị của khoá `key` ở mọi độ sâu (E2b ghi e1_npz_sha256 ở từng mục K và ở
+    mục thứ cấp, lược đồ có thể lồng thêm)."""
+    if isinstance(obj, dict):
+        for k, v in obj.items():
+            if k == key and isinstance(v, str):
+                out.append(v)
+            else:
+                _collect(v, key, out)
+    elif isinstance(obj, list):
+        for v in obj:
+            _collect(v, key, out)
+    return out
+
+
+def check_e2b_inputs(wj, inputs, seeds):
+    """So e1_npz_sha256 mà E2b ghi với sha256 của npz E1 mà E2 đọc, từng lần chia.
+    Lệch thì dừng (lựa chọn 4). Trả số mục đã khớp và số lần chia E2b không ghi băm."""
+    if wj is None:
+        return {"status": "no_wtrain_json"}
+    bad, n_ok, no_sha = [], 0, []
+    for s in map(str, seeds):
+        ps = (wj.get("per_split") or {}).get(s)
+        if not isinstance(ps, dict):
+            continue
+        shas = _collect(ps, "e1_npz_sha256", [])
+        if not shas:
+            no_sha.append(s)
+            continue
+        mine = set(inputs[s].values())
+        for h in shas:
+            if h in mine:
+                n_ok += 1
+            else:
+                bad.append((s, h))
+    if bad:
+        s, h = bad[0]
+        sys.exit(f"wtrain_tuned.json (E2b) khớp trên npz E1 khác npz E2 đang đọc: lần chia {s}, "
+                 f"e1_npz_sha256 {h[:12]} không thuộc {[x[:12] for x in inputs[s].values()]} "
+                 f"({len(bad)} mục lệch). E1 đã chạy lại sau E2b: chạy lại E2b trên npz hiện tại.")
+    if no_sha:
+        print(f"  [cảnh báo] wtrain_tuned.json không ghi e1_npz_sha256 ở lần chia {no_sha}: không "
+              "kiểm được E2b đọc cùng npz E1", flush=True)
+    return {"status": "checked", "n_matched": n_ok, "splits_without_sha": no_sha}
 
 
 # ---------------------------------------------------------------------------
@@ -661,16 +814,30 @@ def summarize(res, seeds, roles, cfg, wj, wsrc):
         c2["p_holm"] = None if k == k3 else dec[k]["iii|R5"].get("p_holm")
         c2["holm_family"] = "primary" if k == k3 else "table_iv (qua iii|R5)"
         contrasts["C2"][k] = c2
-    p_prim = {"C2": dec[k3]["C2"]["nb"]["p"]}
     c1_diffs = [-x if np.isfinite(x) else float("nan") for x in dec[k3]["iii|R8*"]["per_split"]]
     contrasts["C1"] = _cell_stats(c1_diffs, [None] * len(seeds), sd_y) | {
         "source": "tính trong decomp_rules: cost_3(R1) - cost_3(R8*) với R8* từ wtrain_tuned.json"}
-    if contrasts["C1"]["n"] >= 2:
-        p_prim["C1"] = contrasts["C1"]["nb"]["p"]
     if "C3" in dec[k3]:
         contrasts["C3"] = dec[k3]["C3"] | {"source": f"tính trong decomp_rules từ npz ({c3} và {B})"}
-        p_prim["C3"] = dec[k3]["C3"]["nb"]["p"]
+    # Lựa chọn 3: chỉ phép so ĐỦ n_ref lần chia vào Holm chính; thiếu thì coi là vắng
+    # (p = 1) và ghi incomplete, không để nb_ttest lặng lẽ tính trên phần lần chia còn lại.
+    n_ref = cfg["n_ref"]
+    p_prim, incomplete = {}, []
+    for c, cell in (("C1", contrasts["C1"]), ("C2", dec[k3]["C2"]), ("C3", contrasts.get("C3"))):
+        if cell is None:
+            continue
+        final = bool(cell["n"] == n_ref)
+        cell["n_ref"], cell["final"] = n_ref, final
+        cell["status"] = "final" if final else f"provisional: {cell['n']}/{n_ref} lần chia"
+        if final:
+            p_prim[c] = cell["nb"]["p"]
+        elif cell["n"] > 0:
+            incomplete.append((c, cell["status"]))
     contrasts["primary_holm"] = sp.primary_holm({c: p for c, p in p_prim.items() if c in PRIMARY_CONTRASTS})
+    for c, st in incomplete:
+        contrasts["primary_holm"][c] |= {"incomplete": True, "status": st}
+    contrasts["incomplete"] = [c for c, _ in incomplete]
+    contrasts["n_ref"], contrasts["n_splits_done"] = n_ref, len(seeds)
     contrasts["C2"][k3]["p_holm"] = contrasts["primary_holm"]["C2"]["p_holm"]
 
     tost = {r: {pkey(K): dec[pkey(K)][f"iii|{r}"]["tost"] for K in cfg["k_grid"]} for r in TOST_RULES}
@@ -716,13 +883,21 @@ def summarize(res, seeds, roles, cfg, wj, wsrc):
 
 
 def gate_g2(dec, contrasts, calib, P, k_grid):
-    """Cổng G2 (mục 6.5). provisional = True khi họ chính còn thiếu C1 hoặc C3."""
+    """Cổng G2 (mục 6.5). provisional = True khi họ chính còn thiếu C1, C2 hoặc C3 (vắng
+    hay chưa đủ lần chia), hoặc khi một ô mà G2 đọc (C2, TOST của R2/R4, ii, ii_a) tính
+    trên ít hơn n_ref lần chia (lựa chọn 3)."""
     k3 = pkey(PRIMARY_K)
     c2 = dec[k3]["C2"]
     ph = contrasts["primary_holm"]
+    n_ref = contrasts["n_ref"]
     missing = [c for c in PRIMARY_CONTRASTS if ph[c]["missing"]]
+    used = [(k3, "C2"), (k3, "ii"), (k3, "ii_a")] + [(pkey(K), "C2") for K in (5, 8) if pkey(K) in dec]
+    used += [(pkey(K), f"iii|{r}") for K in k_grid for r in ("R2", "R4")]
+    short = [f"{n}@K{k}" for k, n in used if dec[k][n].get("n") != n_ref]
     m = c2["mean"]
-    out = {"provisional": bool(missing), "primary_missing": missing, "C2_mean": m,
+    out = {"provisional": bool(missing or short), "primary_missing": missing,
+           "primary_incomplete": list(contrasts.get("incomplete", [])), "cells_incomplete": short,
+           "n_ref": n_ref, "C2_mean": m, "C2_n": c2["n"],
            "C2_p": c2["nb"]["p"], "C2_p_holm": ph["C2"]["p_holm"], "C2_tost": c2["tost"]["passed"]}
     if np.isfinite(m) and m <= -SESOI and ph["C2"]["p_holm"] < ALPHA:
         out["verdict"] = "bayes_better"
@@ -743,14 +918,22 @@ def gate_g2(dec, contrasts, calib, P, k_grid):
         out["text_R2"] = "R2 tương đương R1 ở cả bốn K: khuyến nghị R2 làm mặc định, R1 vào phụ lục"
     if out["R4_equiv_R1_all_K"]:
         out["text_R4"] = "R4 tương đương R1: hiệu chỉnh tuyến tính có trọng số đã đủ"
+    # Lựa chọn 13: "(ii-a) quá nửa (ii)" chỉ khi tầng quyết định CÓ lợi (ii > 0); tỉ số
+    # với ii ≤ 0 đổi dấu và vô nghĩa.
     ii, iia = dec[k3]["ii"]["mean"], dec[k3]["ii_a"]["mean"]
-    share = iia / ii if np.isfinite(ii) and ii != 0 else float("nan")
-    out["ii_a_share_K3"] = share
-    out["ii_a_majority"] = bool(np.isfinite(share) and share > 0.5)
+    pos = bool(np.isfinite(ii) and ii > 0)
+    out["ii_K3"], out["ii_a_K3"] = ii, iia
+    out["ii_a_share_K3"] = iia / ii if pos else float("nan")
+    out["ii_a_majority"] = bool(pos and np.isfinite(iia) and iia > 0.5 * ii)
+    out["ii_nonpositive"] = bool(np.isfinite(ii) and ii <= 0)
     out["calib_slope_primary"] = calib[P]["slope_test"]["mean"]
     if out["ii_a_majority"]:
         out["text_ii_a"] = ("phần lớn lợi ích quyết định ở K nhỏ là hiệu chỉnh lại trung tâm "
                             f"(độ dốc hiệu chỉnh test {out['calib_slope_primary']:.3f})")
+    if out["ii_nonpositive"]:
+        out["text_ii_nonpositive"] = (f"ở K = 3 tầng quyết định không có lợi trên trung tâm chính "
+                                      f"((ii) = {ii:+.3f} ≤ 0; (ii-a) = {iia:+.3f}): không tách (ii) thành "
+                                      "hiệu chỉnh và nghiêng, cổng (ii-a)/(ii) không áp dụng")
     return out
 
 
@@ -770,15 +953,21 @@ def print_summary(S):
                   f"{nb['p']:.4f}  {'  -   ' if ph is None else f'{ph:.4f}'}  "
                   f"{b.get('n_excl0', '-')}/{b.get('n_splits', '-')}        {c['n_pos']}/{c['n']}")
     ph = S["contrasts"]["primary_holm"]
-    print("  Họ chính (m = 3): " + ", ".join(
-        f"{c}: p={v['p']:.4f} p_holm={v['p_holm']:.4f}{' (thiếu)' if v['missing'] else ''}"
+    ct = S["contrasts"]
+    print(f"  Họ chính (m = 3; cuối khi đủ {ct['n_ref']} lần chia): " + ", ".join(
+        f"{c}: p={v['p']:.4f} p_holm={v['p_holm']:.4f}"
+        + (" (CHƯA ĐỦ lần chia: " + v["status"] + ")" if v.get("incomplete")
+           else " (thiếu)" if v["missing"] else "")
         for c, v in ph.items()))
     print("  TOST ±%.2f so với R1: " % SESOI + "; ".join(
         f"{r}: " + " ".join(f"K{k}={'qua' if t['passed'] else 'không'}" for k, t in v.items())
         for r, v in S["tost_vs_R1"].items()))
     g = S["gate_G2"]
-    print(f"  G2: {g['verdict']} ({g['text']}){' [tạm, thiếu ' + ','.join(g['primary_missing']) + ']' if g['provisional'] else ''}")
-    for t in ("text_R2", "text_R4", "text_ii_a"):
+    why = [f"thiếu {','.join(g['primary_missing'])}"] if g["primary_missing"] else []
+    why += [f"chưa đủ {g['n_ref']} lần chia ở {','.join(g['primary_incomplete'] + g['cells_incomplete'])}"] \
+        if g["primary_incomplete"] or g["cells_incomplete"] else []
+    print(f"  G2: {g['verdict']} ({g['text']})" + (f" [TẠM: {'; '.join(why)}]" if g["provisional"] else " [cuối]"))
+    for t in ("text_R2", "text_R4", "text_ii_a", "text_ii_nonpositive"):
         if t in g:
             print(f"      {g[t]}")
     print(f"  (ii-a)/(ii) ở K = 3: {g['ii_a_share_K3']:.3f}; R8* = {S['r8']['which']}, nguồn {S['r8']['source']}")
@@ -814,20 +1003,31 @@ def main(argv=None):
         miss = [p for p in npz_paths(args.preds_dir, s, args.tag) if not os.path.exists(p)]
         if miss:
             sys.exit(f"Thiếu npz của E1: {miss} (E1 chưa xong, hoặc sai --preds-dir/--tag)")
+    # Lựa chọn 6: mọi npz cùng một lượt E1 (và khớp --centers-json nếu có) trước khi tính
+    e1_sig, e1_check = check_e1_inputs(args.preds_dir, seeds, args.tag, args.centers_json, args.smoke)
 
     cfg = {"script": EXPERIMENT, "smoke": bool(args.smoke), "roles": roles, "c3_center": args.c3_center,
            "tag": args.tag, "k_dense": list(K_DENSE), "lambdas": list(LAMBDA_DENSE),
            "asym_pairs": [list(p) for p in ASYM_PAIRS], "k_grid": list(K_GRID), "boot_B": boot_B,
-           "family_rules": FAMILY_RULES}
+           "family_rules": FAMILY_RULES,
+           # Dấu của E1 vào dấu của E2: .partial tính trên một lượt E1 không được nối tiếp
+           # bằng npz của lượt E1 khác, kể cả khi sha256 từng file được kiểm riêng.
+           "e1_fingerprints": {t: v["fingerprint"] for t, v in e1_sig.items()}}
     # --save-preds không đổi số nào nên không vào dấu: bật/tắt nó không làm hỏng .partial
     fp = preds_io.fingerprint(cfg)
+    # n_ref (lựa chọn 3) chỉ đổi nhãn cuối/tạm của phần tóm tắt, không đổi số của lần chia
     cfg = cfg | {"fingerprint": fp, "save_preds": args.save_preds,
-                 "asym_pairs": [tuple(p) for p in ASYM_PAIRS]}
+                 "asym_pairs": [tuple(p) for p in ASYM_PAIRS],
+                 "n_ref": len(seeds) if args.smoke else len(SEEDS)}
     res = preds_io.load_partial(args.out + ".partial", fp,
                                 {"per_split": {}, "split_info": {}, "boot": {}, "inputs": {}},
                                 on_mismatch=args.on_mismatch)
     inputs = {str(s): {p: preds_io.file_sha256(p) for p in npz_paths(args.preds_dir, s, args.tag)}
               for s in seeds}
+    # Lựa chọn 4: E2b phải khớp trên đúng các npz này; kiểm TRƯỚC khi tính để lệch thì
+    # dừng sớm thay vì sau cả lượt chạy
+    wj = preds_io.load_json(args.wtrain_json) if os.path.exists(args.wtrain_json) else None
+    e2b_check = check_e2b_inputs(wj, inputs, seeds)
     todo = []
     for s in map(str, seeds):
         if s in res["per_split"]:
@@ -861,7 +1061,6 @@ def main(argv=None):
         dump(res, args.out + ".partial")          # ghi dần: ngắt giữa chừng vẫn giữ lần chia đã xong
 
     done = [str(s) for s in seeds if str(s) in res["per_split"]]
-    wj = preds_io.load_json(args.wtrain_json) if os.path.exists(args.wtrain_json) else None
     wsrc = None if wj is None else {"path": args.wtrain_json, "sha256": preds_io.file_sha256(args.wtrain_json),
                                     "commit": ((wj.get("meta") or {}).get("provenance") or {}).get("commit")}
     summary = summarize(res, done, roles, cfg, wj, wsrc)
@@ -878,6 +1077,8 @@ def main(argv=None):
         "family_rules": FAMILY_RULES, "boot_B": boot_B, "sesoi": SESOI, "nb_ratio": NB_RATIO,
         "alpha": ALPHA, "primary_k": PRIMARY_K, "flag_thresholds": list(E9_THRESHOLDS),
         "centers_json": args.centers_json, "wtrain_json": wsrc, "save_preds": args.save_preds,
+        "e1_inputs": {"signature": e1_sig, "check": e1_check}, "e2b_inputs_check": e2b_check,
+        "n_ref": cfg["n_ref"],
         "provenance": provenance.stamp()}
     dump(final, args.out)
     print(f"\nĐã ghi {args.out}")
