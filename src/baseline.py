@@ -10,6 +10,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from xgboost import XGBRegressor
 
 from preprocess import load_and_preprocess
+from ga_xgb import CV_FOLDS
 
 SEED = 42
 
@@ -35,7 +36,7 @@ def main():
     params = dict(tree_method="hist", random_state=SEED, n_jobs=-1)
 
     # 5-fold CV trên train
-    kf = KFold(n_splits=5, shuffle=True, random_state=SEED)
+    kf = KFold(n_splits=CV_FOLDS, shuffle=True, random_state=SEED)
     cv_scores = []
     for i, (tr, va) in enumerate(kf.split(X_tr)):
         m = XGBRegressor(**params)

@@ -23,10 +23,17 @@ from ga_xgb import split_params, sample_weights
 
 NAMES = {"ga_rmse": "GA-RMSE", "ga_mae": "GA-MAE", "ga_r2": "GA-R2",
          "ga_tail_a1": "GA4XGB (a=1)", "ga_tail_a0.5": "GA4XGB (a=0.5)",
+         "ga_tail_a0.25": "GA4XGB (a=0.25)", "ga_tail_a0.75": "GA4XGB (a=0.75)",
          "ga_tail_a1_lw": "GA4XGB (a=1, +LW)",
+         # Thiếu khoá ở đây thì `if tag not in NAMES: continue` bỏ qua LẶNG LẼ
+         # cả file kết quả — đó là lý do dòng "RMSE + beta gene" của Bảng 5 từng
+         # biến mất khỏi paper_numbers.json. Thêm mốc mới thì thêm cả dòng này.
+         "ga_rmse_lw": "GA-RMSE (+LW)",
          "random_search": "Random search", "grid_search": "Grid search"}
 ORDER = ["Default XGBoost", "Grid search", "Random search", "GA-RMSE", "GA-MAE",
-         "GA-R2", "GA4XGB (a=0.5)", "GA4XGB (a=1)", "GA4XGB (a=1, +LW)"]
+         "GA-R2", "GA-RMSE (+LW)", "Fixed: RMSE config + b=1",
+         "GA4XGB (a=0.25)", "GA4XGB (a=0.5)", "GA4XGB (a=0.75)",
+         "GA4XGB (a=1)", "GA4XGB (a=1, +LW)"]
 
 
 def main():
@@ -67,6 +74,16 @@ def main():
             continue
         d = json.load(open(f))
         methods[NAMES[tag]] = split_params(d["best_params"])
+
+    # Baseline "cấu hình RMSE + beta = 1 CỐ ĐỊNH" (dòng Fixed của Bảng 5): lấy
+    # đúng siêu tham số mà GA-RMSE chọn rồi áp trọng số nghịch mật độ beta = 1
+    # mà KHÔNG tối ưu lại — tách phần công của việc tìm kiếm chung khỏi phần
+    # công của bản thân loss weighting đặt tay [20]. Trước đây con số này tính
+    # tay ngoài repo nên không tái lập được; nay nằm trong pipeline.
+    _rmse_best = "results/ga_rmse_best.json"
+    if os.path.exists(_rmse_best):
+        _p, _ = split_params(json.load(open(_rmse_best))["best_params"])
+        methods["Fixed: RMSE config + b=1"] = (_p, 1.0)
 
     preds, overall, perbin, perregion, bias = {}, {}, {}, {}, {}
     for name, (p, beta) in methods.items():

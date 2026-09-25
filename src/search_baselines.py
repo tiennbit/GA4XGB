@@ -1,7 +1,7 @@
 # -*- coding: utf-8 -*-
 """Baseline so sánh: RandomSearch và GridSearch cho XGBoost, CÙNG ngân sách
 số lần đánh giá với GA (mặc định 622 — số eval thực tế của run GA-RMSE),
-cùng protocol: fitness = RMSE trung bình 3-fold CV trên train, test chạm 1 lần.
+cùng protocol: fitness = RMSE trung bình 5-fold CV trên train, test chạm 1 lần.
 
 Chạy:
   python3 src/search_baselines.py --strategy random --budget 622
@@ -19,6 +19,7 @@ from sklearn.metrics import mean_absolute_error, mean_squared_error, r2_score
 from xgboost import XGBRegressor
 
 from preprocess import load_and_preprocess
+from ga_xgb import CV_FOLDS
 
 # Cùng miền tìm kiếm với GA (GENES trong ga_xgb.py)
 SPACE = {
@@ -72,7 +73,7 @@ def main():
 
     X, y = load_and_preprocess()
     X_tr, X_te, y_tr, y_te = train_test_split(X, y, test_size=0.2, random_state=42)
-    kf = KFold(n_splits=3, shuffle=True, random_state=42)
+    kf = KFold(n_splits=CV_FOLDS, shuffle=True, random_state=42)
 
     rng = np.random.default_rng(args.seed)
     configs = (random_configs(args.budget, rng) if args.strategy == "random"

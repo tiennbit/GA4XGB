@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/usr/bin/env bash
 # =============================================================================
 # Chạy toàn bộ thí nghiệm cho bài báo — KHÔNG CẦN CLAUDE.
 # Cách dùng (từ thư mục gốc dự án):

@@ -39,7 +39,9 @@ MUTATION_RATE = 0.15      # xác suất đột biến mỗi gene
 TOURNAMENT_K = 3
 ELITISM = 2
 PATIENCE = 10             # dừng sớm nếu không cải thiện
-CV_FOLDS = 3
+# 5-fold: khớp với baseline.py (vốn đã dùng 5) nên đường tham chiếu ở Fig.5(b)
+# và đường GA cùng một thang; xem biện giải ở Section IV-B.
+CV_FOLDS = 5
 BLX_ALPHA = 0.3
 
 # (tên, min, max, kiểu, thang-log?)
@@ -94,13 +96,23 @@ def key_of(ind):
 
 
 class GA:
-    def __init__(self, metric, seed, n_jobs, alpha=1.0, loss_weight=False):
+    def __init__(self, metric, seed, n_jobs, alpha=1.0, loss_weight=False,
+                 fixed_beta=None):
         global GENES
         self.metric = metric
         self.seed = seed
         self.n_jobs = n_jobs
         self.alpha = alpha    # mức nhấn đuôi cho metric 'tail': 0=RMSE thường, 1=macro-RMSE
         self.loss_weight = loss_weight
+        # beta ÁP CỐ ĐỊNH vào loss, KHÔNG thành gene. Đây là arm control còn thiếu
+        # của luận điểm coupling: nếu search chấm bằng RMSE thuần, nhưng bị BUỘC
+        # phải học dưới loss đã reweight, thì nó tái tối ưu hyperparameter tới đâu?
+        # Nếu nó cũng chạm profile của GA4XGB(alpha=1,+LW) thì alpha không đóng góp
+        # gì cho kết quả headline — và ngược lại thì coupling là thật, định lượng được.
+        self.fixed_beta = fixed_beta
+        if fixed_beta is not None and loss_weight:
+            raise SystemExit("--fixed-beta và --loss-weight loại trừ nhau: "
+                             "một cái ÁP beta, cái kia TÌM beta.")
         self.genes = list(BASE_GENES) + ([WEIGHT_GENE] if loss_weight else [])
         GENES = self.genes    # decode()/key_of() dùng biến module-level
         self.rng = random.Random(seed)
@@ -134,6 +146,8 @@ class GA:
         if k in self.cache:
             return self.cache[k]
         xgb_params, beta = split_params(decode(ind, self.genes))
+        if beta is None:
+            beta = self.fixed_beta      # None nếu không bật --fixed-beta
         rmses, maes, r2s, tails = [], [], [], []
         for tr, va in self.kf.split(self.X_tr):
             m = XGBRegressor(tree_method="hist", random_state=42,
@@ -202,6 +216,8 @@ class GA:
         tag = self.metric if self.metric != "tail" else f"tail_a{self.alpha:g}"
         if self.loss_weight:
             tag += "_lw"
+        if self.fixed_beta is not None:
+            tag += f"_fb{self.fixed_beta:g}"
         prefix = f"results/ga_{tag}"
         if self.seed != 42:
             prefix += f"_seed{self.seed}"
@@ -251,6 +267,8 @@ class GA:
         # Đánh giá cuối trên test
         best_params = decode(best_ind, self.genes)
         xgb_params, beta = split_params(best_params)
+        if beta is None:
+            beta = self.fixed_beta
         m = XGBRegressor(tree_method="hist", random_state=42,
                          n_jobs=self.n_jobs, **xgb_params)
         t0 = time.time()
@@ -273,7 +291,8 @@ class GA:
                              "elitism": ELITISM, "cv_folds": CV_FOLDS,
                              "seed": self.seed, "n_jobs": self.n_jobs,
                              "tail_alpha": self.alpha, "tail_bins": TAIL_BINS,
-                             "loss_weight": self.loss_weight}}
+                             "loss_weight": self.loss_weight,
+                             "fixed_beta": self.fixed_beta}}
         with open(f"{prefix}_best.json", "w") as f:
             json.dump(out, f, indent=2)
         print(f"\n[{self.metric}] Best params:", best_params)
@@ -290,6 +309,9 @@ if __name__ == "__main__":
     ap.add_argument("--n-jobs", type=int, default=-1)
     ap.add_argument("--loss-weight", action="store_true",
                     help="thêm gene thứ 8: cường độ trọng số mẫu trong loss XGBoost")
+    ap.add_argument("--fixed-beta", type=float, default=None,
+                    help="ÁP beta cố định vào loss (không thành gene) và vẫn chấm "
+                         "bằng --metric. Arm control cho luận điểm coupling.")
     args = ap.parse_args()
     GA(args.metric, args.seed, args.n_jobs, alpha=args.alpha,
-       loss_weight=args.loss_weight).run()
+       loss_weight=args.loss_weight, fixed_beta=args.fixed_beta).run()

@@ -45,8 +45,15 @@ def load_methods():
         if "best_params" not in d:
             continue
         xgb_p, beta = split_params(d["best_params"])
+        # Thiếu một mốc ở bảng này thì `.get(tag, tag)` lặng lẽ trả về tên file
+        # thô ("ga_tail_a0.25"), và bảng trong bài hiện tên lẫn lộn với các mốc
+        # cũ ("GA-tail a=0.5"). Thêm mốc alpha mới thì thêm cả dòng ở đây.
         name = {"ga_rmse": "GA-RMSE", "ga_mae": "GA-MAE", "ga_r2": "GA-R2",
-                "ga_tail_a1": "GA-tail a=1", "ga_tail_a0.5": "GA-tail a=0.5",
+                "ga_tail_a0.25": "GA-tail a=0.25",
+                "ga_tail_a0.5": "GA-tail a=0.5",
+                "ga_tail_a0.75": "GA-tail a=0.75",
+                "ga_tail_a1": "GA-tail a=1",
+                "ga_rmse_lw": "GA-RMSE +LW",
                 "ga_tail_a1_lw": "GA-tail a=1 +LW",
                 "random_search": "RandomSearch", "grid_search": "GridSearch",
                 "baseline_xgb_default": None}.get(tag, tag)

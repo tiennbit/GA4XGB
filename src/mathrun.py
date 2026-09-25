@@ -155,6 +155,41 @@ def fitness_equation_omml():
             f'</m:oMath>')
 
 
+def cost_equation_omml():
+    """OMML của công thức chi phí quyết định (phương trình (2) của bài).
+
+        Cost(α, K) = Σ_r n_r c_r MAE_r(α) / Σ_r n_r c_r
+    """
+    lhs = (_r("Cost", "p") + _r("(", "p") + _r("α") + _r(", ", "p")
+           + _r("K") + _r(")", "p"))
+    term = (_sub(_r("n"), _r("r")) + _sub(_r("c"), _r("r"))
+            + _sub(_r("MAE", "p"), _r("r")) + _r("(", "p") + _r("α") + _r(")", "p"))
+    num = _nary("∑", _r("r"), "", term)
+    den = _nary("∑", _r("r"), "", _sub(_r("n"), _r("r")) + _sub(_r("c"), _r("r")))
+    return (f'<m:oMath xmlns:m="{M_NS}">'
+            f'{lhs}{_r(" = ", "p")}{_frac(num, den)}'
+            f'</m:oMath>')
+
+
+# Bảng tra: đoạn LaTeX trong draft -> hàm dựng OMML. Trước đây build_docx.py
+# gọi thẳng fitness_equation_omml() cho MỌI khối $$, nên thêm phương trình thứ
+# hai vào bài sẽ render ra bản sao của phương trình (1) mà không báo lỗi gì.
+# Thêm phương trình mới thì thêm một khoá nhận dạng ở đây.
+_EQUATIONS = [("F_{\\text{tail}}", fitness_equation_omml),
+              ("\\text{Cost}", cost_equation_omml)]
+
+
+def display_equation_for(latex):
+    """Chọn bộ dựng OMML theo nội dung LaTeX. Không nhận ra thì BÁO LỖI —
+    thà dừng build còn hơn lặng lẽ in ra một phương trình khác."""
+    for key, fn in _EQUATIONS:
+        if key in latex:
+            return fn()
+    raise ValueError(
+        "Không nhận ra phương trình trưng bày:\n  " + latex.strip()[:120] +
+        "\nThêm bộ dựng OMML vào _EQUATIONS trong src/mathrun.py.")
+
+
 def add_display_equation(doc, omml, number=None, style="PARA"):
     """Chèn phương trình trưng bày: canh giữa, số hiệu (n) canh phải bằng tab.
 

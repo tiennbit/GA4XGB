@@ -24,7 +24,7 @@ from docx.enum.section import WD_SECTION
 from docx_ieee import (clear_body, set_columns, no_autonum, set_indent,
                        format_table_ieee, repeat_header, shrink_break,
                        add_bookmark, add_cite_link, ref_anchor, FULL_W, COL_W)
-from mathrun import emit_inline, add_display_equation, fitness_equation_omml
+from mathrun import emit_inline, add_display_equation, display_equation_for
 
 
 def strip_comments(text):
@@ -79,15 +79,14 @@ FIGCAP = {
                 "dominate.",
 }
 
-FRONT_AUTHORS = "NGUYEN-BA-TIEN1,2, NGO-THI-THU-TRANG3, AND HA-NAM NGUYEN4"
+FRONT_AUTHORS = "NGUYEN BA TIEN1,3, NGO THI THU TRANG2, AND HA-NAM NGUYEN3"
 FRONT_AFF = [
-    "1International School, Vietnam National University, Hanoi 122300, Vietnam",
-    "2Institute of Digital Education and Testing, Vietnam National University, "
-    "Hanoi 122300, Vietnam",
-    "3Posts and Telecommunications Institute of Technology, Hanoi 122300, Vietnam",
-    "4Information Technology Department, Electric Power University, Hanoi 122300, Vietnam",
+    "1Institute of Digital Education and Testing, Vietnam National University, "
+    "Hanoi (VNU), Hanoi, Vietnam",
+    "2Posts and Telecommunications Institute of Technology, Hanoi 122300, Vietnam",
+    "3International School, Vietnam National University, Hanoi (VNU), Hanoi, Vietnam",
 ]
-FRONT_CA = "Corresponding author: Ha-Nam Nguyen (e-mail: namnhvn@epu.edu.vn)."
+FRONT_CA = "Corresponding author: Ha-Nam Nguyen (e-mail: namnh@vnu.edu.vn)."
 FRONT_FN = ("This work received no specific grant from any funding agency in the "
             "public, commercial, or not-for-profit sectors.")
 
@@ -363,7 +362,7 @@ def main():
         if ln.strip().startswith("$$"):
             switch(2)
             state["eq"] += 1
-            add_display_equation(doc, fitness_equation_omml(), number=state["eq"])
+            add_display_equation(doc, display_equation_for(ln), number=state["eq"])
             state["after_head"] = False
             i += 1
             continue

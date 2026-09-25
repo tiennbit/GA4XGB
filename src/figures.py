@@ -240,6 +240,16 @@ def fig6_mae_by_bin():
     d = json.load(open("results/paper_numbers.json"))
     bs = json.load(open("results/bootstrap_test.json")) if \
         os.path.exists("results/bootstrap_test.json") else None
+    # Nguồn thanh sai số của panel (b). Ưu tiên độ lệch chuẩn GIỮA CÁC SEED nếu
+    # có chiến dịch multi-seed: bài báo kết luận bằng kiểm định trên seed, nên
+    # hình phải hiện đúng nguồn bất định đó. CI bootstrap (nhiễu lấy mẫu tập
+    # test) chỉ dùng khi chưa chạy multi-seed — nó trả lời câu hỏi khác.
+    ms = None
+    for cand_dir in ("results_mseed", "results"):
+        fp = os.path.join(cand_dir, "regions.json")
+        if os.path.exists(fp):
+            ms = json.load(open(fp, encoding="utf-8"))["runs"]
+            break
 
     order = ["Default XGBoost", "Grid search", "Random search", "GA-RMSE",
              "GA4XGB (a=0.5)", "GA4XGB (a=1)", "GA4XGB (a=1, +LW)"]
@@ -249,7 +259,14 @@ def fig6_mae_by_bin():
              "Random search":    (C["purple"], "--", "d"),
              "GA-RMSE":          (C["blue"],  "-",  "s"),
              "GA-MAE":           (C["yellow"], "--", "x"),
+             # Quét alpha là tham số LIÊN TỤC, nên 5 điểm alpha dùng dải màu
+             # xanh->đỏ theo thứ tự thay vì màu phân loại rời rạc. Hai màu
+             # chen giữa (a=0.25, a=0.75) không có trong bảng Okabe-Ito 8 màu
+             # nhưng nằm đúng trên dải, chỉ xuất hiện ở panel (c) nơi mỗi điểm
+             # đều có nhãn alpha đi kèm nên không sợ lẫn.
+             "GA4XGB (a=0.25)":  ("#4C9BC4", "--", ">"),
              "GA4XGB (a=0.5)":   (C["orange"], "--", "^"),
+             "GA4XGB (a=0.75)":  ("#E07B39", "--", "<"),
              "GA4XGB (a=1)":     (C["red"],   "-",  "v"),
              "GA4XGB (a=1, +LW)":(C["green"], "-",  "*")}
     nice = lambda m: m.replace("a=", r"$\alpha$=")
@@ -278,7 +295,7 @@ def fig6_mae_by_bin():
     ax1.annotate("conventional methods:\n3.4$\\times$ U-shape", xy=(1.05, 12.3),
                  xytext=(2.35, 17.6), fontsize=6.8, color="0.3", ha="center",
                  arrowprops=dict(arrowstyle="->", color="0.5", lw=0.6))
-    ax1.annotate("GA4XGB+LW: near-flat\nacross the distribution", xy=(4.0, 8.1),
+    ax1.annotate("GA4XGB+LW: flatter, but the\nlowest bin still costs 14.5 pts", xy=(4.0, 8.1),
                  xytext=(5.05, 14.6), fontsize=6.8, color=C["green"], ha="center",
                  arrowprops=dict(arrowstyle="->", color=C["green"], lw=0.7))
     ax1.set_xticks(xs); ax1.set_xticklabels(B.LABELS, fontsize=7.0)
@@ -300,8 +317,24 @@ def fig6_mae_by_bin():
     # ("cải thiện bao nhiêu phần") thay vì bẻ cong trục.
     base = "GA-RMSE"
     regs = ["Low tail", "Middle", "High tail", "All"]
+
+    def reg(method, region):
+        """MAE theo vùng: trung bình qua các seed nếu có chiến dịch multi-seed,
+        nếu không thì lấy lượt tham chiếu. Panel (b) và (c) PHẢI dùng hàm này —
+        văn bản trích trung bình đa seed, hình vẽ giá trị một lượt là vênh nhau
+        ngay trong cùng một trang."""
+        k = mskey.get(method)
+        if ms and k in ms:
+            xs = [v[region] for v in ms[k].values()]
+            return sum(xs) / len(xs)
+        return d["mae_per_region"][method][region]
     keymap = {"Low tail": "LOW TAIL (<60)", "Middle": "MIDDLE (60-100)",
               "High tail": "HIGH TAIL (>=100)", "All": "ALL"}
+    mskey = {"GA-MAE": "ga_mae", "Random search": "random_search",
+             "Grid search": "grid_search",
+             "GA4XGB (a=0.25)": "ga_tail_a0.25", "GA4XGB (a=0.5)": "ga_tail_a0.5",
+             "GA4XGB (a=0.75)": "ga_tail_a0.75", "GA4XGB (a=1)": "ga_tail_a1",
+             "GA4XGB (a=1, +LW)": "ga_tail_a1_lw"}
     bskey = {"GA4XGB (a=1)": "GA-tail a=1", "GA4XGB (a=0.5)": "GA-tail a=0.5",
              "GA4XGB (a=1, +LW)": "GA-tail a=1 +LW", "Random search": "RandomSearch",
              "Grid search": "GridSearch"}
@@ -311,16 +344,26 @@ def fig6_mae_by_bin():
         col = style[m][0]
         vals, los, his = [], [], []
         for r in regs:
-            ref = d["mae_per_region"][base][r]
-            dv = d["mae_per_region"][m][r] - ref
+            ref = reg(base, r)
+            dv = reg(m, r) - ref
             pct = 100.0 * dv / ref
             vals.append(pct)
-            c = bs["comparisons"].get(keymap[r], {}).get(bskey.get(m, m)) if bs else None
-            if c:
-                los.append(pct - 100.0 * c["ci95"][0] / ref)
-                his.append(100.0 * c["ci95"][1] / ref - pct)
+            mk = mskey.get(m)
+            if ms and mk in ms and "ga_rmse" in ms:
+                # ±1 SD của HIỆU, lan truyền từ SD hai phía (độc lập giữa các seed)
+                xs = [v[r] for v in ms[mk].values()]
+                bsq = [v[r] for v in ms["ga_rmse"].values()]
+                sd = lambda a: (sum((z - sum(a)/len(a))**2 for z in a)/(len(a)-1))**0.5 \
+                    if len(a) > 1 else 0.0
+                e = 100.0 * ((sd(xs)**2 + sd(bsq)**2) ** 0.5) / ref
+                los.append(e); his.append(e)
             else:
-                los.append(0); his.append(0)
+                c = bs["comparisons"].get(keymap[r], {}).get(bskey.get(m, m)) if bs else None
+                if c:
+                    los.append(pct - 100.0 * c["ci95"][0] / ref)
+                    his.append(100.0 * c["ci95"][1] / ref - pct)
+                else:
+                    los.append(0); his.append(0)
         pos = np.arange(len(regs)) + (j - (len(cand) - 1) / 2) * w
         ax2.bar(pos, vals, w * 0.88, color=col, label=nice(m), zorder=2)
         ax2.errorbar(pos, vals, yerr=[los, his], fmt="none", ecolor="0.2",
@@ -331,7 +374,7 @@ def fig6_mae_by_bin():
     ax2.tick_params(axis="y", labelsize=6.5)
     ax2.yaxis.set_major_formatter(lambda v, _: f"{v:+.0f}%".replace("+0%", "0"))
     ax2.set_ylabel("change in MAE vs GA-RMSE", fontsize=7)
-    ax2.set_title("(b) Effect size, with 95% CI", fontsize=7.5)
+    ax2.set_title("(b) Effect size, $\\pm$1 SD over five seeds", fontsize=7.5)
     ax2.text(0.02, 0.04, "below 0 = better", transform=ax2.transAxes, fontsize=6.2,
              color="0.35", style="italic")
     ax2.legend(frameon=True, framealpha=0.9, edgecolor="none", fontsize=6.1,
@@ -343,11 +386,11 @@ def fig6_mae_by_bin():
     # Bản trước: nhãn "α=0" đè lên nhãn trục y, và mũi tên xanh dựng ngay mép
     # trái cũng đè nốt. Ở đây nới lề trục rồi mới đặt nhãn, và bỏ mũi tên —
     # tiêu đề panel đã nói ý đó rồi.
-    tail_mae = lambda m: (d["mae_per_region"][m]["Low tail"] +
-                          d["mae_per_region"][m]["High tail"]) / 2
-    front = [m for m in ["GA-RMSE", "GA4XGB (a=0.5)", "GA4XGB (a=1)",
+    tail_mae = lambda m: (reg(m, "Low tail") + reg(m, "High tail")) / 2
+    front = [m for m in ["GA-RMSE", "GA4XGB (a=0.25)", "GA4XGB (a=0.5)",
+                         "GA4XGB (a=0.75)", "GA4XGB (a=1)",
                          "GA4XGB (a=1, +LW)"] if m in d["mae_per_region"]]
-    fx = [d["mae_per_region"][m]["All"] for m in front]
+    fx = [reg(m, "All") for m in front]
     fy = [tail_mae(m) for m in front]
     ax3.plot(fx, fy, color="0.6", linestyle="--", linewidth=0.9, zorder=1)
     # CHỈ vẽ các điểm trên biên + default. Bản trước vẽ cả grid/random search:
@@ -357,20 +400,48 @@ def fig6_mae_by_bin():
     pts = front + ["Default XGBoost"]
     for m in pts:
         col, _, mk = style[m]
-        ax3.scatter(d["mae_per_region"][m]["All"], tail_mae(m), color=col, marker=mk,
+        ax3.scatter(reg(m, "All"), tail_mae(m), color=col, marker=mk,
                     s=36, zorder=3, edgecolor="white", linewidth=0.4)
 
-    xs_all = [d["mae_per_region"][m]["All"] for m in pts]
-    ys_all = [tail_mae(m) for m in pts]
+    # Đường đối chứng: quét hệ số giãn hậu kỳ s trên cấu hình GA-RMSE. Nó chạm
+    # CÙNG miền của biên (alpha, beta) mà không cần tìm kiếm gì. Phản biện dựng
+    # đúng baseline này để bác câu "joint search reaches a strictly more
+    # tail-favorable point", nên nó phải nằm trong hình chứ không chỉ trong text
+    # — giấu nó ở đây thì hình đang nói khác Bảng 5.
+    rx = ry = None
+    rc_path = os.path.join("results", "recalibration.json")
+    if os.path.exists(rc_path):
+        rc = json.load(open(rc_path, encoding="utf-8"))
+        sw = rc["scale_sweep"]
+        ss = sorted(sw, key=float)
+        rx = [sw[s]["All"]["mean"] for s in ss]
+        ry = [(sw[s]["Low tail"]["mean"] + sw[s]["High tail"]["mean"]) / 2
+              for s in ss]
+        ax3.plot(rx, ry, color=C["black"], linestyle="-", linewidth=1.0,
+                 alpha=0.5, zorder=2)
+        s_star = rc["s_star"]["mean"]
+        k = min(range(len(ss)), key=lambda i: abs(float(ss[i]) - s_star))
+        ax3.scatter(rx[k], ry[k], facecolor="none", edgecolor=C["black"],
+                    marker="o", s=52, linewidth=1.1, zorder=4)
+        ax3.annotate(f"post-hoc rescaling\n(s={s_star:.2f} selected)",
+                     (rx[k], ry[k]), textcoords="offset points",
+                     xytext=(12, -10), fontsize=6.3, color="0.25", ha="left",
+                     arrowprops=dict(arrowstyle="-", lw=0.4, color="0.6",
+                                     shrinkA=0, shrinkB=2))
+
+    xs_all = [reg(m, "All") for m in pts] + (rx or [])
+    ys_all = [tail_mae(m) for m in pts] + (ry or [])
     padx = (max(xs_all) - min(xs_all)) * 0.22
     pady = (max(ys_all) - min(ys_all)) * 0.18
     ax3.set_xlim(min(xs_all) - padx, max(xs_all) + padx)
     ax3.set_ylim(min(ys_all) - pady, max(ys_all) + pady * 1.5)
 
-    lab = {"GA-RMSE": r"$\alpha$=0", "GA4XGB (a=0.5)": r"$\alpha$=0.5",
+    lab = {"GA-RMSE": r"$\alpha$=0", "GA4XGB (a=0.25)": r"$\alpha$=0.25",
+           "GA4XGB (a=0.5)": r"$\alpha$=0.5", "GA4XGB (a=0.75)": r"$\alpha$=0.75",
            "GA4XGB (a=1)": r"$\alpha$=1", "GA4XGB (a=1, +LW)": r"$\alpha$=1, +LW"}
-    offs = {"GA-RMSE": (-4, 10), "GA4XGB (a=0.5)": (-5, -12),
-            "GA4XGB (a=1)": (9, -3), "GA4XGB (a=1, +LW)": (-7, 9)}
+    offs = {"GA-RMSE": (5, 11), "GA4XGB (a=0.25)": (-8, -4),
+            "GA4XGB (a=0.5)": (-8, -15), "GA4XGB (a=0.75)": (-9, 13),
+            "GA4XGB (a=1)": (12, -6), "GA4XGB (a=1, +LW)": (-9, 10)}
     for m, x, yv in zip(front, fx, fy):
         ax3.annotate(lab[m], (x, yv), textcoords="offset points", xytext=offs[m],
                      fontsize=6.5, color="0.2",
@@ -379,7 +450,7 @@ def fig6_mae_by_bin():
                                      shrinkA=0, shrinkB=2))
     dx = d["mae_per_region"]["Default XGBoost"]
     ax3.annotate("default", (dx["All"], (dx["Low tail"] + dx["High tail"]) / 2),
-                 textcoords="offset points", xytext=(7, -2), fontsize=6.5, color="0.35")
+                 textcoords="offset points", xytext=(11, -7), fontsize=6.5, color="0.35")
     ax3.set_xlabel("Overall MAE (all students)", fontsize=7)
     ax3.set_ylabel("Mean tail MAE\n(lower = fairer)", fontsize=7, linespacing=1.2)
     ax3.set_title("(c) The trade-off is a frontier, not a winner", fontsize=7.5)

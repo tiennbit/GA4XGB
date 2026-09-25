@@ -93,7 +93,7 @@ def fig1_flowchart():
 
     box(ax, (xc, 15.35), W, 2.5,
         "Evaluate fitness of each individual\n"
-        "(3-fold CV on the training set)\n"
+        "(5-fold CV on the training set)\n"
         "$F_{tail}=\\sqrt{\\sum_b w_b MSE_b}$\n"
         "$w_b \\propto n_b^{\\,1-\\alpha}$",
         fc="#D6F0E4", fs=6.6)
@@ -220,7 +220,8 @@ def fig2_crossover():
     axB.set_ylim(-0.16, 1.16)
     axB.set_xticks([])
     axB.set_yticks([0, 0.5, 1])
-    axB.set_ylabel("gene value\n(normalized)", fontsize=6.5, linespacing=1.2)
+    axB.set_ylabel("gene value, normalized to [0,1]\n(see Table 1 for actual ranges)",
+                   fontsize=6.0, linespacing=1.2)
     axB.tick_params(labelsize=6.2, length=2, pad=1)
     for sp in ("top", "right", "bottom"):
         axB.spines[sp].set_visible(False)

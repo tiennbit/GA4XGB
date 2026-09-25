@@ -19,6 +19,8 @@ notes/
 # ─── Bản thảo bài báo (phát hành qua nhà xuất bản, không qua repo) ──────────
 paper/*.docx
 paper/*.md
+# Mốc phiên bản đã gửi/nhận — cùng lý do; được Nextcloud sao lưu, không cần git.
+paper/versions/
 
 # ─── Rác build ─────────────────────────────────────────────────────────────
 __pycache__/
@@ -32,3 +34,15 @@ node_modules/
 
 # Log chạy thô (có đường dẫn máy cá nhân)
 results/*.out
+
+# ─── Script đồng bộ server (chứa IP nội bộ, tài khoản) ─────────────────────
+*.local.*
+
+# ─── Dữ liệu giả cho kiểm thử và dự đoán từng bản ghi ──────────────────────
+# fixtures do tests/make_fake_data.py, make_fake_preds.py sinh lại được; preds/
+# chứa chỉ số dòng và y của dữ liệu thật trên server, không đưa lên repo.
+tests/fixtures/
+preds/
+
+# ─── Dữ liệu công khai cho E11 (tải lại được, kiểm bằng SHA256SUMS) ─────────
+data_public/
