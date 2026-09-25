@@ -146,17 +146,26 @@ def cluster_boot_mean():
 
 
 @test
-def r8_key_matching():
-    keys = ["R8_K2", "R8_K3", "R8_bag5_K3", "R8_bag5_K2", "R8_K20"]
-    assert sens.match_r8_key(keys, "R8", 2) == "R8_K2"
-    assert sens.match_r8_key(keys, "R8_bag5", 3) == "R8_bag5_K3"
-    assert sens.match_r8_key(keys, "R8", 5) is None
-    assert sens.match_r8_key(["K=1.5", "K=15"], "R8", 1.5) == "K=1.5"
+def e2b_path_matches_wtrain_layout():
+    """E5 phải đọc đúng tên file wtrain_tuned.unit_path ghi: split<seed>_K<K>.npz."""
+    import wtrain_tuned as wt
+    for K in (2, 3, 5, 8, 1.5):
+        want = wt.unit_path("d", 101, wt._num(str(K)))
+        assert sens.e2b_path("d", 101, K) == want, (sens.e2b_path("d", 101, K), want)
+
+
+@test
+def g1_read_from_summary():
+    """E1 ghi cổng ở summary.G1 (primary_center, bag_Bstar); E3, E5, E9 phải đọc được."""
+    work = tempfile.mkdtemp(prefix="g1_")
     try:
-        sens.match_r8_key(["R8_K3", "wtrain_K3"], "R8", 3)
-        raise AssertionError("khoá mơ hồ phải báo lỗi")
-    except ValueError:
-        pass
+        p = os.path.join(work, "decomp_centers.json")
+        preds_io.dump_json_atomic({"summary": {"b_star": {"B_star": 2},
+                                               "G1": {"primary_center": "rs_tuned", "bag_Bstar": "bag10"}}}, p)
+        prim, bst, src = ps.resolve_centers(None, None, p, ["rs_tuned", "bag10", "default"])
+        assert (prim, bst) == ("rs_tuned", "bag10") and "summary.G1" in src, (prim, bst, src)
+    finally:
+        shutil.rmtree(work, ignore_errors=True)
 
 
 @test
@@ -198,19 +207,29 @@ def ensure_fake_e1():
                   if f.startswith("split") and f.endswith(".npz") and "_" not in f)
 
 
-def make_fake_e2b(out_dir, seeds, base="bag10"):
-    """npz E2b GIẢ: R8 và R8_bag5 ở từng K là trung tâm `base` giãn theo K. Chỉ để chạy
-    qua đường mã của C1 (khoá, căn hàng), không mô phỏng huấn luyện có trọng số."""
+def make_fake_e2b(out_dir, seeds, base="bag10", e1_sha=None):
+    """npz E2b GIẢ theo ĐÚNG bố cục của wtrain_tuned.py: một file cho mỗi (lần chia, K),
+    split<seed>_K<K>.npz, lược đồ E1 với oof/test {"R8", "R8_bag5"} và meta.e1_npz_sha256
+    của npz E1 đã đọc. Dự đoán là trung tâm `base` giãn theo K: chỉ để chạy qua đường mã
+    của C1 (tên file, khoá, căn hàng, kiểm sha), không mô phỏng huấn luyện có trọng số.
+    e1_sha cho trước (ví dụ sai) để kiểm E5 từ chối E2b tính trên E1 khác."""
+    import wtrain_tuned as wt
     for s in seeds:
-        d = preds_io.load_split(preds_io.split_path(FAKE_PREDS, s))
+        p1 = preds_io.split_path(FAKE_PREDS, s)
+        d = preds_io.load_split(p1)
+        sha = e1_sha or preds_io.file_sha256(p1)
         mu = float(np.mean(d["y_tr"]))
-        p = np.asarray(d["test"][base], dtype=float)
-        test = {}
         for K in K_GRID:
-            test[f"R8_K{K}"] = mu + (1 + 0.05 * (K - 1)) * (p - mu)
-            test[f"R8_bag5_K{K}"] = mu + (1 + 0.04 * (K - 1)) * (p - mu)
-        preds_io.save_split(preds_io.split_path(out_dir, s), idx_te=d["idx_te"], y_te=d["y_te"],
-                            test=test, meta={"fake": True, "seed": int(s)})
+            def stretch(p, a):
+                return mu + (1 + a * (K - 1)) * (np.asarray(p, dtype=float) - mu)
+            oof = {"R8": stretch(d["oof"][base], 0.05), "R8_bag5": stretch(d["oof"][base], 0.04)}
+            test = {"R8": stretch(d["test"][base], 0.05), "R8_bag5": stretch(d["test"][base], 0.04)}
+            entry = {"K": K, "e1_npz_sha256": sha, "fake": True}
+            preds_io.save_split(wt.unit_path(out_dir, s, K), idx_tr=d["idx_tr"], idx_te=d["idx_te"],
+                                y_tr=d["y_tr"], y_te=d["y_te"], fold_of=d["fold_of"],
+                                school_code=d["school_code"], prov_code=d["prov_code"], oof=oof, test=test,
+                                meta={"seed": int(s), "K": K, "family": "step", "e1_npz_sha256": sha,
+                                      "entry": entry, "fake": True})
 
 
 def _finite(x):
@@ -243,7 +262,8 @@ def run_end_to_end(work):
     sens.main(common + ["--out", out5, "--preds-dir", pd5, "--e2b-dir", e2b, "--refit"])
     r5 = json.load(open(out5, encoding="utf-8"))
     e = r5["per_split"][str(seeds[0])]
-    assert e["r8"]["status"] == "ok" and e["r8"]["keys"]["3"] == "R8_bag5_K3", e["r8"]
+    assert e["r8"]["status"] == "ok" and e["r8"]["keys"]["3"] == "R8_bag5", e["r8"]
+    assert e["r8"]["paths"]["3"] == f"split{seeds[0]}_K3.npz", e["r8"]
     assert e["refit"]["status"] == "fitted", e["refit"]
     assert os.path.exists(preds_io.split_path(pd5, seeds[0], "refit"))
     base = r5["summary"]["settings"]["baseline"]["contrasts"]["step:3"]
@@ -275,6 +295,18 @@ def run_end_to_end(work):
     assert r5c["per_split"][str(seeds[0])]["refit"]["status"] == "cached"
     assert (r5c["summary"]["settings"]["tree_factor=1.2"]["contrasts"]
             == r5["summary"]["settings"]["tree_factor=1.2"]["contrasts"])
+    # E2b tính trên một npz E1 khác (sha lệch): phải báo lỗi, không lặng lẽ tính C1
+    e2b_bad = os.path.join(work, "preds", "wtrain_bad")
+    make_fake_e2b(e2b_bad, seeds, e1_sha="0" * 64)
+    try:
+        sens.main(common + ["--out", os.path.join(work, "results", "sens_bad.json"), "--preds-dir", pd5,
+                            "--e2b-dir", e2b_bad])
+        raise AssertionError("E2b lệch sha E1 phải báo lỗi")
+    except ValueError as ex:
+        assert "sha256" in str(ex), ex
+    assert r5["summary"]["n_expected"] == 1 and r5["summary"]["complete"]
+    assert "frac_theta_informative" in S3["pairs"]["bag10|R0 - default|R0"]["dominance"]
+    assert S3["complete"] and "complete" in S3["gates"]
     # Thiếu E2b: C1 = NaN và không hợp lệ, không lỗi
     out5n = os.path.join(work, "results", "sensitivity_no_e2b.json")
     sens.main(common + ["--out", out5n, "--preds-dir", pd5, "--e2b-dir", os.path.join(work, "khong_co")])

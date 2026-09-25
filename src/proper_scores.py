@@ -36,6 +36,11 @@ Chọn lựa khi khung bài để ngỏ (ghi lại theo yêu cầu):
   - "Trội ở θ" dùng bất đẳng thức KHÔNG chặt (≤): ở θ ngoài miền của mọi dự đoán hai
     trung tâm bằng nhau đúng từng bit, và trội theo nghĩa Murphy là ≤ ở mọi θ. Tỉ lệ
     theo < chặt và số θ hoà vẫn được ghi.
+    CỔNG tính tỉ lệ trên các θ CÓ THÔNG TIN (không hoà ở mọi lần chia), không trên cả
+    101 θ. Ở θ mà mọi dự đoán của cả hai trung tâm cùng một phía, S_θ chỉ còn phụ thuộc
+    y nên hai trung tâm hoà đúng từng bit; với ŷ trong khoảng 45 đến 110 đó là gần một
+    phần ba lưới 30..130. Đếm các θ đó là "trội" thì cổng 90% gần như tự qua. Tỉ lệ
+    trên cả lưới vẫn được ghi (frac_theta_weak) để đối chiếu.
   - "Ít nhất 9/10 lần chia" co theo J: ceil(0,9·J) (J = 1 khi --smoke).
   - Bootstrap cụm theo trường (quy ước chung mục 6) cho chênh điểm Taggart của từng
     cặp: lấy lại trường có hoàn lại, thống kê là trung bình chênh từng em.
@@ -43,9 +48,12 @@ Chọn lựa khi khung bài để ngỏ (ghi lại theo yêu cầu):
     S = 50 vì hàm đó cố định 50 mức τ và ngưỡng 60/100 của bins.py (trên khoá này
     trùng đuôi theo khối lượng).
   - Trung tâm chính và bag B*: --primary/--bstar; không có thì đọc cổng G1 trong
-    results_cost/decomp_centers.json (khoá thử: gates.G1.primary_center,
-    gates.G1.b_star_center hoặc gates.G1.B_star); không có nữa thì bag10 kèm cảnh
-    báo. Nguồn được ghi vào meta.centers_source.
+    results_cost/decomp_centers.json ở summary.G1 (primary_center, bag_Bstar), đúng
+    chỗ E1 ghi và decomp_rules (E2) đọc; các vị trí cũ gates.G1 vẫn được thử sau.
+    Không có nữa thì bag10 kèm cảnh báo. Nguồn được ghi vào meta.centers_source.
+    (Bản trước chỉ tìm gates.G1, nơi E1 không ghi gì, nên luôn rơi về bag10.)
+  - Cổng chỉ có giá trị kết luận khi đủ lần chia: summary.complete = (J == số seed
+    mong đợi: 10 của gates.SEEDS, hoặc số seed của --smoke).
   - --preds-dir: E3 không ghi dự đoán từng bản ghi nào; cờ giữ cho giao diện chung.
   - --data: không đọc (E3 chỉ cần npz); giữ cho giao diện chung.
 
@@ -234,16 +242,19 @@ def _g1_from_json(path):
     obj = preds_io.load_json(path) if path and os.path.exists(path) else None
     if not isinstance(obj, dict):
         return None, None, None
-    for where in (obj.get("gates"), (obj.get("summary") or {}).get("gates")):
-        g1 = (where or {}).get("G1") if isinstance(where, dict) else None
+    summ = obj.get("summary") if isinstance(obj.get("summary"), dict) else {}
+    # summary.G1 là nơi decomp_centers (E1) ghi cổng; hai vị trí sau giữ cho JSON cũ
+    for label, where in (("summary.G1", summ), ("gates.G1", obj.get("gates")),
+                         ("summary.gates.G1", summ.get("gates"))):
+        g1 = where.get("G1") if isinstance(where, dict) else None
         if not isinstance(g1, dict):
             continue
         prim = g1.get("primary_center") or g1.get("primary")
-        bst = g1.get("b_star_center") or g1.get("bstar_center")
-        if bst is None and g1.get("B_star") is not None:
+        bst = g1.get("bag_Bstar") or g1.get("b_star_center") or g1.get("bstar_center")
+        if bst is None and isinstance(g1.get("B_star"), int):
             bst = f"bag{int(g1['B_star'])}"
         if prim or bst:
-            return prim, bst, f"{path}: gates.G1"
+            return prim, bst, f"{path}: {label}"
     return None, None, None
 
 
@@ -414,12 +425,13 @@ def run_split(seed, cfg):
 # ---------------------------------------------------------------------------
 # Tổng hợp qua các lần chia
 # ---------------------------------------------------------------------------
-def summarize(per, seeds, cfg):
+def summarize(per, seeds, cfg, n_expected=len(SEEDS)):
     ents = [per[str(s)] for s in seeds if str(s) in per]
     J = len(ents)
     min_splits = max(1, math.ceil(E3_SPLITS_MIN / 10 * J))
     names = [f for f in ents[0]["forecasts"] if all(f in e["forecasts"] for e in ents)]
-    S = {"n_splits": J, "min_splits": min_splits, "murphy_mean": {}, "scores": {}, "pairs": {},
+    S = {"n_splits": J, "n_expected": int(n_expected), "complete": bool(J == n_expected),
+         "min_splits": min_splits, "murphy_mean": {}, "scores": {}, "pairs": {},
          "dist": {}, "dist_pairs": {}, "gates": {}}
     for f in names:
         S["murphy_mean"][f] = np.mean([e["forecasts"][f]["murphy"] for e in ents], axis=0).tolist()
@@ -439,6 +451,7 @@ def summarize(per, seeds, cfg):
         weak = ((Ma <= Mb + TIE_TOL).sum(axis=0) >= min_splits)
         strict = ((Ma < Mb - TIE_TOL).sum(axis=0) >= min_splits)
         tied = np.all(np.abs(Ma - Mb) <= TIE_TOL, axis=0)
+        info = ~tied                    # θ có thông tin: không hoà ở ít nhất một lần chia
         boots = [e["boot"].get(key) for e in ents if e["boot"].get(key)]
         S["pairs"][key] = {
             "taggart": sp.nb_ttest([e["forecasts"][a]["taggart"] - e["forecasts"][b]["taggart"]
@@ -448,6 +461,9 @@ def summarize(per, seeds, cfg):
             "taggart_high": ms([e["forecasts"][a]["taggart_high"] - e["forecasts"][b]["taggart_high"]
                                 for e in ents]),
             "dominance": {"frac_theta_weak": float(weak.mean()), "frac_theta_strict": float(strict.mean()),
+                          "frac_theta_informative": (float(weak[info].mean()) if info.any()
+                                                     else float("nan")),
+                          "n_theta_informative": int(info.sum()),
                           "n_theta_tied": int(tied.sum()), "n_theta": int(len(weak)),
                           "theta_not_dominated": [float(t) for t, ok in zip(cfg["theta"], weak) if not ok]},
             "boot_excludes_zero": {"n": int(sum(b_["excludes_zero"] for b_ in boots)),
@@ -472,11 +488,15 @@ def summarize(per, seeds, cfg):
     g = S["gates"]
     key = f"{P}|R0 - default|R0"
     if key in S["pairs"]:
-        frac = S["pairs"][key]["dominance"]["frac_theta_weak"]
+        dom = S["pairs"][key]["dominance"]
+        frac = dom["frac_theta_informative"]
         g["center_forecast_gain"] = {
-            "frac_theta": frac, "threshold": E3_DOMINANCE, "passed": bool(frac >= E3_DOMINANCE),
-            "rule": "trung tâm chính trội default (<=) ở >= 90% θ, mỗi θ trong >= ceil(0,9·J) "
-                    "lần chia; không qua thì chỉ báo lợi ích trung tâm bằng cost_K"}
+            "frac_theta": frac, "frac_theta_all_grid": dom["frac_theta_weak"],
+            "n_theta_informative": dom["n_theta_informative"], "threshold": E3_DOMINANCE,
+            "passed": bool(np.isfinite(frac) and frac >= E3_DOMINANCE),
+            "rule": "trung tâm chính trội default (<=) ở >= 90% θ CÓ THÔNG TIN (bỏ θ hoà ở mọi lần "
+                    "chia), mỗi θ trong >= ceil(0,9·J) lần chia; không qua thì chỉ báo lợi ích "
+                    "trung tâm bằng cost_K"}
     tilt = {}
     for K in cfg["ks"]:
         k2 = f"{P}|R1@K{fmt_k(K)} - {P}|R1_1"
@@ -486,12 +506,14 @@ def summarize(per, seeds, cfg):
     g["tilt_check"] = {"per_K": tilt, "alarm": bool(any(v["alarm"] for v in tilt.values())),
                        "rule": "R1 ở K > 1 thắng R1₁ trên điểm Taggart ở >= ceil(0,9·J) lần chia "
                                "thì kiểm lại cài đặt (điểm nhất quán cho trung bình)"}
+    g["complete"] = S["complete"]
     return S
 
 
 def print_summary(S, cfg):
     P = cfg["primary"]
-    print(f"\n[E3] {S['n_splits']} lần chia; trội khi đúng ở >= {S['min_splits']} lần chia")
+    print(f"\n[E3] {S['n_splits']}/{S['n_expected']} lần chia ({'đủ' if S['complete'] else 'CHƯA đủ, cổng tạm'}); "
+          f"trội khi đúng ở >= {S['min_splits']} lần chia")
     print("  cặp (âm = trái tốt hơn)                              Taggart     p_NB    p_Holm  trội θ")
     for k, v in S["pairs"].items():
         t = v["taggart"]
@@ -545,7 +567,7 @@ def main(argv=None):
     inputs_of = {s: {"e1": input_shas(e1_paths(args.e1_dir, s, args.e1_tags))} for s in seeds}
     drive_splits(run_split, seeds, cfg, args.workers, res, partial, inputs_of)
 
-    S = summarize(res["per_split"], seeds, cfg)
+    S = summarize(res["per_split"], seeds, cfg, n_expected=len(seeds) if args.smoke else len(SEEDS))
     print_summary(S, cfg)
     res["summary"] = S
     res["meta"] |= {

@@ -57,8 +57,20 @@ Các lựa chọn khi khung bài chưa nói rõ (ghi cả vào meta.choices củ
      từng fold. R8* chỉ khớp ở K = 3 (cấu hình E2b ở K = 3); ô (iii) của R8* ở K khác
      để trống. Cấu hình rs_tuned lấy từ meta npz (trace_params, rs_tuned_index hoặc
      argmin trace_oof_rmse); cấu hình R8 từ results_cost/wtrain_tuned.json.
-  9. Trung tâm chính và bag B* là tham số (--center, --bstar) vì chỉ biết sau cổng
-     G1 của E1; run_use_validity.sh đọc CENTER, BSTAR từ môi trường.
+  9. Trung tâm chính và bag B* chỉ biết sau cổng G1 của E1: --center, --bstar; không
+     truyền thì đọc summary.G1 của results_cost/decomp_centers.json như E3, E5
+     (proper_scores.resolve_centers), không có nữa thì bag10 kèm cảnh báo. Bản trước
+     mặc định thẳng bag10 không cảnh báo, nên quên truyền --center sau G1 là chạy E9
+     trên sai trung tâm mà không ai biết.
+ 10. Cấu hình R8 ở K = 3 đọc từ wtrain_tuned.json (E2b); mục của lần chia phải mang
+     e1_npz_sha256 trùng sha256 npz E1 mà E9 đọc, lệch là báo lỗi (R8 dò trên một
+     bản E1 khác). Trọng số của R8 trong (d) chuẩn hoá như E2b: chia trung bình w trên
+     hàng KHỚP của fold (fit), tập dừng sớm chia cùng hằng số.
+ 11. Chạy tiếp: lần chia trong .partial chỉ được dùng lại khi npz E1 VÀ cấu hình
+     rs_tuned, R8 còn như lúc tính; E2b chạy lại đổi cấu hình R8 thì báo lỗi thay vì
+     trộn hai bản (d).
+ 12. summary.complete = (số lần chia == 10 của gates.SEEDS, hoặc số seed của --smoke):
+     cổng chỉ là kết luận khi complete.
 
 g_K không bao giờ được gọi là điểm dự đoán và không khuyến nghị cho học sinh xem
 (cổng E9); JSON chỉ có số tổng hợp, không có dòng dữ liệu.
@@ -92,6 +104,7 @@ import stats_paired as sp
 from calibration_table import calib_stats
 from ga_xgb import BASE_GENES
 from preprocess import DATA_PATH
+from proper_scores import DEFAULT_CENTERS_JSON, resolve_centers
 from screening_curves import FLAG_RATES, at_budget
 
 EXP = "use_validity"
@@ -396,8 +409,11 @@ def fit_center(F, fset, tr, te, plan, members, es, n_jobs, wfun=None,
             if es:
                 sw = swe = None
                 if wfun is not None:
-                    sw = wfun(y[r_fit]) / np.mean(wfun(y[r_train]))
-                    swe = [wfun(y[r_es])]
+                    # Như wtrain_tuned (E2b): chuẩn hoá theo hàng mô hình thực sự khớp (fit),
+                    # tập dừng sớm chia cùng hằng số (thang không đổi RMSE có trọng số).
+                    c_w = float(np.mean(wfun(y[r_fit])))
+                    sw = wfun(y[r_fit]) / c_w
+                    swe = [wfun(y[r_es]) / c_w]
                 m = _xgb(n_jobs, n_estimators=max_trees, early_stopping_rounds=es_rounds,
                          eval_metric="rmse", **kw)
                 m.fit(X_fit, y[r_fit], sample_weight=sw, eval_set=[(X_es, y[r_es])],
@@ -452,11 +468,13 @@ def rs_tuned_config(d):
     return xgb_params(params[int(j)]), int(j)
 
 
-def r8_config(path, seed, K=gates.PRIMARY_K):
+def r8_config(path, seed, K=gates.PRIMARY_K, e1_sha=None):
     """(cấu hình R8 đã chọn ở E2b cho lần chia seed và K, nguồn) hoặc (None, lý do).
 
-    Lược đồ theo mục 6.6: per_split[seed][K] = {best_params, ...}. Khoá K có thể là
-    "3", "3.0", "K3"; cả file và mục đều có thể chưa có khi E2b chưa chạy xong."""
+    Lược đồ theo mục 6.6: per_split[seed][K] = {best_params, e1_npz_sha256, ...}. Khoá K
+    có thể là "3", "3.0", "K3"; cả file và mục đều có thể chưa có khi E2b chưa chạy
+    xong. e1_sha cho trước: mục phải mang e1_npz_sha256 trùng, không thì báo lỗi (lựa
+    chọn 10)."""
     if not path or not os.path.exists(path):
         return None, f"không có {path}"
     obj = preds_io.load_json(path) or {}
@@ -467,6 +485,10 @@ def r8_config(path, seed, K=gates.PRIMARY_K):
     for k in (kkey(K), f"{float(K)}", f"K{kkey(K)}", f"K={kkey(K)}"):
         cell = row.get(k)
         if isinstance(cell, dict) and isinstance(cell.get("best_params"), dict):
+            if e1_sha is not None and cell.get("e1_npz_sha256") != e1_sha:
+                raise ValueError(f"{path}: per_split.{seed}.{k} dò trên npz E1 sha256 "
+                                 f"{str(cell.get('e1_npz_sha256'))[:12]}, khác npz E1 hiện tại "
+                                 f"{e1_sha[:12]}; chạy lại E2b trên E1 hiện tại")
             return xgb_params(cell["best_params"]), f"{path}:per_split.{seed}.{k}"
     return None, f"{path}: lần chia {seed} không có best_params ở K = {kkey(K)}"
 
@@ -739,10 +761,11 @@ def _vals(per, seeds, *path):
     return np.array(out)
 
 
-def summarize(per, thresholds, Ks):
+def summarize(per, thresholds, Ks, n_expected=len(gates.SEEDS)):
     seeds = sorted(per, key=int)
     light = [{k: v for k, v in per[s].items() if k not in ("inputs",)} for s in seeds]
-    S = {"n_splits": len(seeds), "seeds": [int(s) for s in seeds], "mean": aggregate(light)}
+    S = {"n_splits": len(seeds), "n_expected": int(n_expected), "complete": len(seeds) == n_expected,
+         "seeds": [int(s) for s in seeds], "mean": aggregate(light)}
 
     # (a) L(P2) - L(P1): Nadeau-Bengio, TOST ±5, Holm trên lưới c × K
     cells, pv = [], []
@@ -815,12 +838,15 @@ def summarize(per, thresholds, Ks):
                         else bool(np.sign(mf) != np.sign(me)))
         S["near_guess_tests"] = ng
         G["near_guess_sign_change"] = flips
+    G["complete"] = S["complete"]
     S["gates"] = G
     return S
 
 
 def print_summary(S, thresholds, Ks):
-    print("\n[a] L_K trên 1.000 (trung bình qua lần chia), P2 - P1 với p Holm:")
+    print(f"\n[E9] {S['n_splits']}/{S['n_expected']} lần chia "
+          f"({'đủ' if S['complete'] else 'CHƯA đủ, cổng tạm'})")
+    print("[a] L_K trên 1.000 (trung bình qua lần chia), P2 - P1 với p Holm:")
     for direction, c in thresholds:
         tk = thr_key(direction, c)
         for K in Ks:
@@ -856,8 +882,11 @@ def build_parser():
     ap.add_argument("--workers", type=int, default=4, help="số tiến trình joblib (theo lần chia)")
     ap.add_argument("--n-jobs", type=int, default=None,
                     help="luồng XGBoost; mặc định cpu_count // workers (kiểm thử ở Mac: 2)")
-    ap.add_argument("--center", default="bag10", help="trung tâm chính (cổng G1 của E1)")
-    ap.add_argument("--bstar", default="bag10", help="bag B* (cổng B* của E1)")
+    ap.add_argument("--center", default=None,
+                    help="trung tâm chính (cổng G1 của E1); mặc định đọc --centers-json")
+    ap.add_argument("--bstar", default=None, help="bag B* (cổng G1 của E1); mặc định đọc --centers-json")
+    ap.add_argument("--centers-json", default=DEFAULT_CENTERS_JSON,
+                    help="JSON của E1 để đọc summary.G1 khi không có --center/--bstar")
     ap.add_argument("--feature-set", default=None, choices=features.FEATURE_SETS,
                     help="mặc định lấy từ meta npz E1")
     ap.add_argument("--cutoffs", nargs="*", default=[],
@@ -886,12 +915,16 @@ def main(argv=None):
         if not os.path.exists(p):
             sys.exit(f"thiếu npz E1: {p}")
         d = preds_io.load_split(p)
+        if a.center is None or a.bstar is None:
+            a.center, a.bstar, csrc = resolve_centers(a.center, a.bstar, a.centers_json, list(d["test"]))
+            print(f"E9: trung tâm chính {a.center}, bag B* {a.bstar} ({csrc})", flush=True)
+        npz_sha = preds_io.file_sha256(p)
         rs_cfg, rs_src = rs_tuned_config(d)
-        r8_cfg, r8_src = r8_config(a.wtrain_json, s)
+        r8_cfg, r8_src = r8_config(a.wtrain_json, s, e1_sha=npz_sha)
         if r8_cfg is None and a.smoke and rs_cfg is not None:
             # Chỉ để nhánh C1 chạy qua trong kiểm thử khói; không bao giờ ở lượt thật.
             r8_cfg, r8_src = rs_cfg, f"SMOKE: thay bằng cấu hình rs_tuned ({r8_src})"
-        inputs[str(s)] = {"npz": p, "npz_sha256": preds_io.file_sha256(p),
+        inputs[str(s)] = {"npz": p, "npz_sha256": npz_sha,
                           "rs_cfg": rs_cfg if isinstance(rs_src, int) else None,
                           "rs_src": rs_src, "r8_cfg": r8_cfg, "r8_src": r8_src}
 
@@ -904,9 +937,14 @@ def main(argv=None):
     fp = preds_io.fingerprint(config)
     res = preds_io.load_partial(a.out + ".partial", fp, {"per_split": {}}, on_mismatch=a.on_mismatch)
     for s, r in res["per_split"].items():
-        if s in inputs and r.get("inputs", {}).get("npz_sha256") != inputs[s]["npz_sha256"]:
+        if s not in inputs:
+            continue
+        old = r.get("inputs", {})
+        # npz E1 và cấu hình rs_tuned, R8 (lựa chọn 11): R8 đổi khi E2b chạy lại
+        bad = [k for k in ("npz_sha256", "rs_cfg", "r8_cfg") if old.get(k) != sanitize(inputs[s][k])]
+        if bad:
             raise preds_io.FingerprintMismatch(
-                f"{a.out}.partial: lần chia {s} tính trên npz E1 khác bản hiện tại; xoá .partial để tính lại")
+                f"{a.out}.partial: lần chia {s} tính với {bad} khác bản hiện tại; xoá .partial để tính lại")
     pending = [s for s in seeds if str(s) not in res["per_split"]]
     print(f"E9: trung tâm {a.center}, bag B* {a.bstar}, ngưỡng {[thr_key(*t) for t in thresholds]}, "
           f"K {Ks}, (d) {'bật' if a.near_guess else 'tắt'}; {len(pending)}/{len(seeds)} lần chia cần tính, "
@@ -927,7 +965,7 @@ def main(argv=None):
             + f" ({r['seconds']:.0f}s)", flush=True)
 
     per = {s: res["per_split"][str(s)] for s in map(str, seeds)}
-    S = summarize(per, thresholds, Ks)
+    S = summarize(per, thresholds, Ks, n_expected=len(seeds) if a.smoke else len(gates.SEEDS))
     print_summary(S, thresholds, Ks)
     meta = res.get("meta", {})
     meta.update({

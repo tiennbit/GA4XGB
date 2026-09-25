@@ -64,11 +64,18 @@ Chọn lựa khi khung bài để ngỏ (ghi lại theo yêu cầu):
   - Nguồn ŷ test chỉ đổi ŷ mà QUY TẮC được áp; R8* là dự đoán trực tiếp, không đổi.
   - Hệ số cây: cấu hình được chọn = argmin trace_oof_rmse (đúng quy tắc chọn của E1);
     đối chiếu với meta.rs_tuned_index nếu npz có. random_state 0 cho rs_tuned và
-    0..4 cho rs_tuned_bag5 (khung bài mục 6.4).
-  - Tên khoá R8* trong npz E2b: --r8-key (mẫu format với {r8}, {K}); mặc định "auto"
-    tìm khoá trong d["test"] có token K (ví dụ "R8_bag5_K3", "K3") và có/không có
-    "bag" đúng với R8* (gates.r8_star). Không thấy thì C1 = NaN, ghi rõ. npz E2b phải
-    cùng lần chia với E1 (so idx_te nếu có).
+    0..4 cho rs_tuned_bag5 (khung bài mục 6.4). Mỗi thành viên b của rs_tuned_bag5 có
+    số cây RIÊNG ở E1 (meta.info[rs_tuned_bag5].n_trees, dừng sớm riêng); hệ số nhân
+    vào số cây của từng thành viên. Bản trước dùng số cây của thành viên 0 cho cả năm,
+    nên ở hệ số 1,0 nó không tái lập được rs_tuned_bag5 của E1.
+  - R8* đọc theo ĐÚNG bố cục của wtrain_tuned.py (E2b): một npz cho mỗi K,
+    <e2b-dir>/split<seed>_K<K>.npz, dự đoán ở d["test"]["R8"] và d["test"]["R8_bag5"];
+    chọn tên bằng gates.r8_star(trung tâm chính). Bản trước tìm khoá kiểu "R8_K3" trong
+    một npz duy nhất, bố cục E2b không bao giờ ghi, nên C1 luôn NaN trên số thật.
+    Mỗi npz E2b phải (1) cùng lần chia với E1 (idx_te, y_te) và (2) mang
+    meta.e1_npz_sha256 trùng sha256 của một npz E1 mà E5 đang đọc cho lần chia đó;
+    lệch là báo lỗi: R8* khớp trên một bản E1 khác thì C1 so hai lần chạy khác nhau.
+    Thiếu npz ở K nào thì C1 ở K đó là NaN (không hợp lệ), ghi rõ.
   - Tỉ lệ "dấu giữ" tính trên mọi thiết lập hợp lệ CÓ tính mốc; tỉ lệ không tính mốc
     cũng được ghi.
 
@@ -77,7 +84,6 @@ Chạy (server): PYTHONPATH=src .venv/bin/python src/sensitivity.py --workers 5 
 """
 import argparse
 import os
-import re
 import sys
 import time
 
@@ -93,7 +99,7 @@ import preds_io
 import provenance
 import splits
 import stats_paired as sp
-from gates import (DENS_FLOOR, E5_BINNING, E5_DENS_FLOOR, E5_EDGE_HIT_MAX, E5_KDE_SIGMA,
+from gates import (SEEDS, DENS_FLOOR, E5_BINNING, E5_DENS_FLOOR, E5_EDGE_HIT_MAX, E5_KDE_SIGMA,
                    E5_N_BINS, E5_N_SAMPLES, E5_SIGN_KEEP, E5_TAIL_DEFS, E5_TREE_FACTOR, K_DENSE,
                    K_GRID, KDE_SIGMA, N_BINS, N_SAMPLES, PRIMARY_K, R8_BAG, STRETCH_S_OLD,
                    STRETCH_S_STEP, TAIL_MASS_HIGH, TAIL_MASS_LOW, r8_star)
@@ -106,7 +112,8 @@ PRIOR_LAMBDAS = [0.5, 1.0]
 S_GRID_OLD = np.round(np.arange(STRETCH_S_OLD[0], STRETCH_S_OLD[1] + STRETCH_S_STEP / 2,
                                 STRETCH_S_STEP), 2)
 REFIT_CENTERS = ("rs_tuned", "rs_tuned_bag5")
-REFIT_VERSION = 1                 # tăng khi đổi mã khớp lại: làm mất hiệu lực bộ đệm refit
+REFIT_VERSION = 2                 # tăng khi đổi mã khớp lại: làm mất hiệu lực bộ đệm refit
+                                  # (2: số cây riêng từng thành viên rs_tuned_bag5)
 SMOKE_TREE_CAP = 50
 GRADE_PREFIXES = ("10.", "11.", "12.")
 BASELINE = "baseline"
@@ -215,11 +222,22 @@ def refit_predictions(d, seed, cfg):
     params = dict(params_all[jb])
     n0 = int(np.asarray(d["trace_n_trees"])[jb])
     cap = SMOKE_TREE_CAP if cfg["smoke"] else None
-    n_of = {f: min(max(1, int(round(f * n0))), cap or 10 ** 9) for f in cfg["tree_factors"]}
+    # Số cây gốc của từng thành viên: rs_tuned một thành viên (n0); rs_tuned_bag5 lấy số
+    # cây riêng của E1 nếu meta có, không thì n0 cho mọi thành viên (ghi nguồn).
+    rs = {c: list(range(R8_BAG)) if c.endswith("bag5") else [0] for c in cents}
+    base_trees, tree_src = {}, {}
+    for c in cents:
+        lst = ((d["meta"].get("info") or {}).get(c) or {}).get("n_trees")
+        if isinstance(lst, list) and len(lst) == len(rs[c]) and int(lst[0]) == n0:
+            base_trees[c], tree_src[c] = [int(t) for t in lst], "meta.info của E1 (riêng từng thành viên)"
+        else:
+            base_trees[c], tree_src[c] = [n0] * len(rs[c]), "trace_n_trees[j*] cho mọi thành viên"
+    n_of = {f: {c: [min(max(1, int(round(f * t))), cap or 10 ** 9) for t in base_trees[c]]
+                for c in cents} for f in cfg["tree_factors"]}
     info = {"cfg_index": jb, "meta_rs_tuned_index": meta_jb, "params": params, "n_trees_base": n0,
+            "n_trees_base_members": base_trees, "n_trees_source": tree_src,
             "n_trees": {fmt_k(f): n for f, n in n_of.items()}, "centers": cents,
-            "tree_cap": cap, "random_state": {c: list(range(R8_BAG)) if c.endswith("bag5") else [0]
-                                              for c in cents}}
+            "tree_cap": cap, "random_state": rs}
     code = {k: v for k, v in provenance.code_hashes().items() if k in ("features.py", "preprocess.py")}
     fpc = preds_io.fingerprint({"refit_version": REFIT_VERSION, "e1": cfg["inputs_of"][seed]["e1"],
                                 "data_sha256": cfg["data_sha256"], "n_trees": info["n_trees"],
@@ -239,9 +257,10 @@ def refit_predictions(d, seed, cfg):
         preds, t0 = {}, time.time()
         for f, n in n_of.items():
             for c in cents:
-                ms_ = [XGBRegressor(tree_method="hist", random_state=r, n_estimators=n,
+                ms_ = [XGBRegressor(tree_method="hist", random_state=r, n_estimators=nt,
                                     n_jobs=cfg["threads"], verbosity=0, **params)
-                       .fit(Xtr, d["y_tr"]).predict(Xte) for r in info["random_state"][c]]
+                       .fit(Xtr, d["y_tr"]).predict(Xte)
+                       for r, nt in zip(info["random_state"][c], n[c])]
                 preds[f"{f:g}|{c}"] = np.mean(ms_, axis=0)
         info["status"] = "fitted"
         info["fit_s"] = round(time.time() - t0, 1)
@@ -261,41 +280,45 @@ def refit_predictions(d, seed, cfg):
 # ---------------------------------------------------------------------------
 # R8* từ npz của E2b
 # ---------------------------------------------------------------------------
-def match_r8_key(keys, r8name, K):
-    """Khoá của R8* ở K trong d["test"] của npz E2b: có token K (K3, k=3, K_3) và có
-    'bag' đúng như r8name. Nhiều khoá khớp thì báo lỗi thay vì chọn bừa."""
-    want_bag = "bag" in r8name.lower()
-    pat = re.compile(rf"k[=_]?{re.escape(fmt_k(K))}(?![0-9.])")
-    c = [k for k in keys if ("bag" in k.lower()) == want_bag and pat.search(k.lower())]
-    if len(c) > 1:
-        raise ValueError(f"nhiều khoá R8* khớp K = {fmt_k(K)}: {c}; đặt --r8-key")
-    return c[0] if c else None
+def e2b_path(e2b_dir, seed, K):
+    """npz của đơn vị (lần chia, K) của E2b: đúng tên wtrain_tuned.unit_path ghi."""
+    return preds_io.split_path(e2b_dir, seed, f"K{fmt_k(K)}")
 
 
 def load_r8(cfg, seed, d_e1):
-    p = preds_io.split_path(cfg["e2b_dir"], seed, cfg["e2b_tag"])
-    info = {"path": p, "r8_star": cfg["r8_star"]}
-    if not os.path.exists(p):
-        return {}, info | {"status": "missing"}
-    d = preds_io.load_split(p)
-    for k in ("idx_te", "y_te"):
-        if k in d and not np.array_equal(np.asarray(d[k], dtype=float), np.asarray(d_e1[k], dtype=float)):
-            raise ValueError(f"{p}: '{k}' khác npz E1 của lần chia {seed}; E1 và E2b không cùng lần chia")
-    tests = d.get("test", {})
-    out, keys = {}, {}
+    """({K: ŷ test của R8*}, info) từ npz E2b từng K (bố cục ở docstring).
+
+    Báo lỗi khi npz E2b không cùng lần chia với E1 hoặc được tính trên một npz E1 khác
+    (meta.e1_npz_sha256); thiếu npz ở một K thì bỏ qua K đó (C1 = NaN, không hợp lệ)."""
+    name = cfg["r8_star"]
+    e1_shas = set(cfg["inputs_of"][seed]["e1"].values())
+    info = {"r8_star": name, "paths": {}, "keys": {}, "missing_K": []}
+    out = {}
     for K in cfg["ks"]:
-        if cfg["r8_key"] == "auto":
-            k = match_r8_key(list(tests), cfg["r8_star"], K)
-        else:
-            k = cfg["r8_key"].format(r8=cfg["r8_star"], K=fmt_k(K))
-        if k is None or k not in tests:
+        p = e2b_path(cfg["e2b_dir"], seed, K)
+        kk = fmt_k(K)
+        if not os.path.exists(p):
+            info["missing_K"].append(kk)
             continue
-        a = np.asarray(tests[k], dtype=float)
+        d = preds_io.load_split(p)
+        for k in ("idx_te", "y_te"):
+            if k not in d or not np.array_equal(np.asarray(d[k], dtype=float), np.asarray(d_e1[k], dtype=float)):
+                raise ValueError(f"{p}: '{k}' thiếu hoặc khác npz E1 của lần chia {seed}; "
+                                 "E1 và E2b không cùng lần chia")
+        sha = (d.get("meta") or {}).get("e1_npz_sha256")
+        if sha not in e1_shas:
+            raise ValueError(f"{p}: E2b tính trên npz E1 sha256 {str(sha)[:12]}, không trùng npz E1 "
+                             f"E5 đang đọc cho lần chia {seed} ({sorted(x[:12] for x in e1_shas)}). "
+                             "E1 đã chạy lại sau E2b? Chạy lại E2b trên E1 hiện tại.")
+        tests = d.get("test", {})
+        if name not in tests:
+            raise ValueError(f"{p}: không có test['{name}'] (có {sorted(tests)}); npz không phải của E2b?")
+        a = np.asarray(tests[name], dtype=float)
         if len(a) != len(d_e1["y_te"]):
-            raise ValueError(f"{p}: test[{k}] dài {len(a)}, cần {len(d_e1['y_te'])}")
-        out[K], keys[fmt_k(K)] = a, k
-    info |= {"status": "ok" if out else "no_matching_keys", "keys": keys,
-             "aligned_by": "idx_te" if "idx_te" in d else "length", "available_keys": sorted(tests)}
+            raise ValueError(f"{p}: test[{name}] dài {len(a)}, cần {len(d_e1['y_te'])}")
+        out[K] = a
+        info["paths"][kk], info["keys"][kk] = os.path.basename(p), name
+    info["status"] = ("ok" if out and not info["missing_K"] else "partial" if out else "missing")
     return out, info
 
 
@@ -439,15 +462,17 @@ def validity(st, cname, primary, refit_centers, has_rs):
     return True, ""
 
 
-def summarize(per, seeds, cfg):
+def summarize(per, seeds, cfg, n_expected=None):
     ents_all = [per[str(s)] for s in seeds if str(s) in per]
     J = len(ents_all)
+    n_expected = len(seeds) if n_expected is None else int(n_expected)
     has_rs = all(e["centers"]["rs_tuned"] for e in ents_all)
     refit_centers = set()
     for e in ents_all:
         refit_centers |= set((e.get("refit") or {}).get("centers", []))
-    S = {"n_splits": J, "settings": {}, "sign_keep": {}, "stretch_edges": {}, "frontier_interp": {},
-         "gates": {}}
+    # Cổng dấu chỉ có giá trị kết luận trên đủ lần chia (10 của gates.SEEDS)
+    S = {"n_splits": J, "n_expected": n_expected, "complete": bool(J == n_expected),
+         "settings": {}, "sign_keep": {}, "stretch_edges": {}, "frontier_interp": {}, "gates": {}}
     for st in cfg["settings"]:
         ents = [e["settings"][st["name"]] for e in ents_all]
         meta = {k: st[k] for k in ("group", "family", "needs_refit")} | {
@@ -550,6 +575,7 @@ def summarize(per, seeds, cfg):
     # Cổng E5
     pk3 = f"step:{fmt_k(PRIMARY_K)}"
     g = S["gates"]
+    g["complete"] = S["complete"]
     g["unconditional"] = {pk: {cn: (v.get("all") or {}).get("unconditional") for cn, v in cons.items()}
                           for pk, cons in S["sign_keep"].items()}
     base_c2 = S["sign_keep"].get(pk3, {}).get("C2", {}).get("baseline_sign")
@@ -571,7 +597,8 @@ def summarize(per, seeds, cfg):
 
 def print_summary(S):
     pk3 = f"step:{fmt_k(PRIMARY_K)}"
-    print(f"\n[E5] {S['n_splits']} lần chia; K = {PRIMARY_K} (âm = vế trái tốt hơn; * = không hợp lệ)")
+    print(f"\n[E5] {S['n_splits']}/{S['n_expected']} lần chia ({'đủ' if S['complete'] else 'CHƯA đủ, cổng tạm'}); "
+          f"K = {PRIMARY_K} (âm = vế trái tốt hơn; * = không hợp lệ)")
     print(f"  {'thiết lập':30s}" + "".join(f"{c:>22s}" for c in CONTRASTS))
     for name, v in S["settings"].items():
         if "skipped" in v:
@@ -599,11 +626,8 @@ def print_summary(S):
 def main(argv=None):
     ap = argparse.ArgumentParser(description="E5: độ nhạy của tầng quyết định (hậu kỳ, --refit tuỳ chọn)")
     add_common_args(ap, "sensitivity")
-    ap.add_argument("--e2b-dir", default=os.path.join("preds", "wtrain"), help="npz của E2b (R8, R8_bag5)")
-    ap.add_argument("--e2b-tag", default=None)
-    ap.add_argument("--r8-key", default="auto",
-                    help='khoá R8* trong d["test"] của npz E2b, mẫu format với {r8} và {K}, '
-                         'ví dụ "{r8}_K{K}"; "auto" tự tìm')
+    ap.add_argument("--e2b-dir", default=os.path.join("preds", "wtrain"),
+                    help="npz của E2b: split<seed>_K<K>.npz, test['R8'] và test['R8_bag5']")
     ap.add_argument("--ks", type=float, nargs="+", default=K_GRID)
     ap.add_argument("--lambdas", type=float, nargs="+", default=PRIOR_LAMBDAS)
     ap.add_argument("--refit", action="store_true",
@@ -633,7 +657,7 @@ def main(argv=None):
     if args.smoke:
         threads = min(2, threads)
     cfg = {"script": "sensitivity", "e1_dir": args.e1_dir, "e1_tags": parse_tags(args.e1_tags),
-           "e2b_dir": args.e2b_dir, "e2b_tag": args.e2b_tag, "r8_key": args.r8_key,
+           "e2b_dir": args.e2b_dir,
            "primary": primary, "bstar": bstar, "r8_star": r8s, "ks": ks, "lambdas": list(args.lambdas),
            "settings": settings, "refit": bool(args.refit), "tree_factors": [float(f) for f in E5_TREE_FACTOR],
            "smoke": bool(args.smoke), "data": args.data, "data_sha256": data_sha,
@@ -649,12 +673,12 @@ def main(argv=None):
     partial = args.out + ".partial"
     res = preds_io.load_partial(partial, fp, {"per_split": {}}, on_mismatch=args.on_mismatch)
     inputs_of = {s: {"e1": input_shas(e1_paths(args.e1_dir, s, args.e1_tags)),
-                     "e2b": input_shas([preds_io.split_path(args.e2b_dir, s, args.e2b_tag)])}
+                     "e2b": input_shas([e2b_path(args.e2b_dir, s, K) for K in ks])}
                  for s in seeds}
     cfg["inputs_of"] = inputs_of
     drive_splits(run_split, seeds, cfg, args.workers, res, partial, inputs_of)
 
-    S = summarize(res["per_split"], seeds, cfg)
+    S = summarize(res["per_split"], seeds, cfg, n_expected=len(seeds) if args.smoke else len(SEEDS))
     print_summary(S)
     res["summary"] = S
     res["meta"] |= {
