@@ -1,0 +1,20 @@
+ma	noi_dung	json	khoa_hoac_muc	commit	giao_thuc_chia	nhan
+F02	RMSE base 9,908, R² 0,4756 (XGBoost mặc định, đặc trưng cũ)	results_cost/cost_aware_rmse.json	summary.base.raw_metrics	cc12d4b	1 lần chia (42) + 5 lần lặp fold trong	thăm dò
+F03	Mã hoá lệch chuẩn chấm theo trường tăng R² lên 0,493	results_cost/cost_aware_rmse.json	summary.enc_lenient.raw_metrics	cc12d4b	1 lần chia (42) + 5 lần lặp fold trong	thăm dò; phần dư trường dùng HSA cùng khoá, bị loại khỏi mô hình chính
+F05	Lưới K bất đối xứng; tỉnh không thêm gì khi đã có trường	results_cost/tail_weights.json	summary.ablation, summary.grid	680c476	1 lần chia (42) + 5 lần lặp fold trong	thăm dò
+F06	Quy tắc trung bình theo K thắng giãn ở mọi K ≥ 2 (RMSE)	results_cost/cost_aware_rmse.json	summary.*.rules	cc12d4b	1 lần chia (42) + 5 lần lặp fold trong	thăm dò
+F10	Trung tâm: bag10 9,468; tuned 9,449; qmean 9,555; qmedian 9,559	results_cost/center_ablation.json	summary.point	268ac30	5 lần chia (42, 1-4)	thăm dò; tuned rò rỉ ở lần chia 1-4
+F11	(không còn là kết quả riêng, khung mục 2)					bỏ
+F12	Tỉ giá đuôi/giữa 2,3 xuống 1,8 dọc biên	results_cost/tail_prior.json (cần xác nhận)	summary.points	c93b789	5 lần chia	thăm dò; nguồn chính xác cần xác nhận
+F13	Tràn: (K_L,K_H)=(5,1) làm RMSE cao tăng 15,04 lên 15,68	results_cost/tail_prior.json; run_tail_prior.log mục [4],[5]	points.bin|step_pair	c93b789	5 lần chia	thăm dò
+F14	Mỗi họ trọng số thắng trên thước đo của chính nó	results_cost/tail_prior.json	summary.points	c93b789	5 lần chia	thăm dò; suy ra từ Bổ đề 1
+F15	Phân phối theo từng em không nhận diện đuôi tốt hơn ŷ (AUC cao 0,910 vs 0,907)	results_cost/tail_prior.json	summary.dist	c93b789	5 lần chia	thăm dò; dấu AUC trong log sai chiều, xem khung 0.5
+F16	PI90 tầng bin: độ phủ biên 0,899, rộng 31,9	results_cost/tail_prior.json	summary.dist.bin	c93b789	5 lần chia	thăm dò
+F17	(xem khung mục 6.11)	cần xác nhận				cần xác nhận nguồn
+F18	Kiểm toán tỉnh cũ: 17/49 tỉnh, SD độ chệch 0,53	results_cost/tail_prior.json	per_split.*.points.*.audit_bias_sd	c93b789	5 lần chia	thăm dò; thay bằng E10
+F19	XGBoost mặc định quá phân tán: sd ratio 0,708 so với sqrt(R²) 0,690	results_mseed/calibration_table.json	summary.default.calib.sd_ratio	trước 173c3f0 (lượt mseed)	1 lần chia (42), 5 seed	thăm dò
+F20	GA ngang random search; P(≥1 cấu hình trong 0,05 của tốt nhất | 60) ≈ 0,97	results_mseed/landscape.json	near_optimal_fraction.within_0.05	trước 173c3f0 (lượt mseed)	1 lần chia (42)	thăm dò; không gian cũ
+F21	Hàm thích nghi đuôi bị lấn át (số MAE cũ, không trích số)	results_mseed/regions.json	runs	trước 173c3f0 (lượt mseed)	1 lần chia (42), 5 seed	thăm dò; MAE
+F24	(xem khung mục 6.11)	cần xác nhận				cần xác nhận nguồn
+E0b.dup	Không có dòng trùng chính xác, gần, toàn dòng; 27 bài y ≤ 37 (0,047%); ngưỡng khối lượng = 60/100	results_cost/data_audit.json	duplicates, near_guess, gates	12c1038	toàn bộ 57.174 dòng	khẳng định
+E0.bench	Fit trong fold 1,59 giây máy (ngưỡng 5): giữ ngân sách 60	results_cost/bench_eval.json	summary, gate	12c1038	lần chia 100, 20 cấu hình	khẳng định
