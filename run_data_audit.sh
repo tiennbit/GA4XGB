@@ -3,7 +3,7 @@
 # số đếm và phân vị (dòng trùng chính xác/gần, gần đoán mò, luồng mẫu, câu hỏi IDT).
 # Sau đó E0 bước (8): đo thời gian fit 20 cấu hình ngẫu nhiên trên F_dt có early
 # stopping để áp cổng ngân sách 60 -> 40 cho E1 và E2b.
-# Khoảng 5 đến 20 phút trên 16 nhân (E0b dưới 1 phút; phép đo 20 cấu hình phần còn lại).
+# Khoảng 5 đến 20 phút trên server IDT (16 luồng; E0b dưới 1 phút, phép đo 20 cấu hình phần còn lại).
 #
 # WORKERS: số tiến trình của phép đo (mỗi tiến trình cpu/WORKERS luồng XGBoost). Đặt
 # bằng --workers mà E1 và E2b sẽ dùng, để cổng phản ánh đúng cách chạy của chúng.
@@ -13,7 +13,7 @@ set -euo pipefail
 cd "$(dirname "$0")"
 mkdir -p results_cost
 PY=".venv/bin/python"
-WORKERS="${WORKERS:-4}"
+WORKERS="${WORKERS:-8}"   # = mặc định của run_decomp_centers.sh và run_wtrain_tuned.sh, để cổng đo đúng cách chạy thật
 export RUN_STAMP="${RUN_STAMP:-}"
 echo "RUN_STAMP=${RUN_STAMP:-<không có>}"
 # In phiên bản trước khi chạy: lệch bản thư viện là lệch số (AGENTS.md, ràng buộc 2)
