@@ -959,90 +959,101 @@ def main(argv=None):
           f"ngân sách {asdict(bud)}", flush=True)
     npz_sha = {}
 
-    with Parallel(n_jobs=args.workers, backend="loky", batch_size=1) as par:
-        def ensure_phase1(seed, fset):
-            path = preds_io.split_path(args.preds_dir, seed, f"p1_{fset}")
-            d = preds_io.load_or_none(path, fp1, on_mismatch=args.on_mismatch)
+    def unit_par():
+        # Một ngữ cảnh Parallel cho MỖI đơn vị (lần chia, tập đặc trưng), không một ngữ
+        # cảnh cho cả lượt: joblib ghi mỗi ma trận design gửi sang tiến trình con (~50 MB
+        # trên dữ liệu thật) vào thư mục tạm và chỉ dọn khi ngữ cảnh đóng. Lượt 25/9 mở
+        # một ngữ cảnh cho cả 10 lần chia × 4 tập, làm đầy /dev/shm (7,9 GB) sau 9 phút.
+        # Pool tiến trình loky vẫn được giữ giữa các ngữ cảnh nên không tốn khởi động lại.
+        return Parallel(n_jobs=args.workers, backend="loky", batch_size=1)
+
+    def ensure_phase1(seed, fset):
+        path = preds_io.split_path(args.preds_dir, seed, f"p1_{fset}")
+        d = preds_io.load_or_none(path, fp1, on_mismatch=args.on_mismatch)
+        fresh = d is None
+        if fresh:
+            t0 = time.time()
+            with unit_par() as par:
+                arrays = fit_phase1(F, seed, fset, bud, par, threads, fp1, run_meta)
+            preds_io.save_split(path, **arrays)
+            d = preds_io.load_split(path)
+            err = validate_e1(d)
+            assert not err, err
+        entry = res1["per_split"].setdefault(str(seed), {})
+        if fresh or fset not in entry:
+            entry[fset] = eval_centers(d, d["meta"]["centers"])
+            res1["splits_info"][str(seed)] = split_info(d)
+            preds_io.dump_json_atomic(res1, p1_path)
+            if fresh:
+                e = entry[fset]
+                print(f"  giai đoạn 1, split {seed}, {fset}: RMSE "
+                      + " ".join(f"{c}={e[c]['all_rmse']:.3f}" for c in e)
+                      + f" ({time.time() - t0:.0f}s)", flush=True)
+        npz_sha.setdefault(str(seed), {})[f"p1_{fset}"] = preds_io.file_sha256(path)
+        return d
+
+    if args.phase in ("1", "all"):
+        for s in seeds:
+            for fs in features.FEATURE_SETS:
+                ensure_phase1(s, fs)
+
+    # Cổng tập đặc trưng (hoặc --feature-set)
+    if args.feature_set:
+        primary, gate = args.feature_set, {"primary": args.feature_set, "override": True, "steps": []}
+    else:
+        missing = [(s, fs) for s in seeds for fs in [GATE_BASE] + GATE_CHAIN
+                   if fs not in res1["per_split"].get(str(s), {})]
+        if missing and args.phase == "2":
+            sys.exit(f"Cổng tập đặc trưng cần giai đoạn 1 cho {missing[:5]}...: chạy --phase 1 "
+                     "trước, hoặc cho --feature-set")
+        gate = feature_gate(res1["per_split"], seeds, bud) | {"override": False}
+        primary = gate["primary"]
+
+    fp2 = res2 = None
+    if args.phase in ("2", "all"):
+        fp2 = preds_io.fingerprint(base_cfg | {"phase": 2, "feature_set": primary, "phase1": fp1,
+                                                "n_configs": bud.n_configs, "max_trees": bud.max_trees,
+                                                "es_rounds": bud.es_rounds, "r8_bag": bud.r8_bag,
+                                                "bag_max": bud.bag_max, "bag_sizes": list(bud.bag_sizes),
+                                                "oof_source": OOF_SOURCE})
+        res2 = preds_io.load_partial(p2_path, fp2, {"per_split": {}}, on_mismatch=args.on_mismatch)
+        print(f"\nGiai đoạn 2 trên {primary} ({'--feature-set' if args.feature_set else 'cổng'}); "
+              f"{bud.n_configs} cấu hình, tối đa {bud.max_trees} cây, dừng sớm {bud.es_rounds} vòng",
+              flush=True)
+        for s in seeds:
+            p1d = ensure_phase1(s, primary)
+            path = preds_io.split_path(args.preds_dir, s)
+            d = preds_io.load_or_none(path, fp2, on_mismatch=args.on_mismatch)
             fresh = d is None
             if fresh:
                 t0 = time.time()
-                preds_io.save_split(path, **fit_phase1(F, seed, fset, bud, par, threads, fp1, run_meta))
+                with unit_par() as par:
+                    arrays = fit_phase2(F, s, primary, bud, par, threads, fp2, p1d, run_meta)
+                preds_io.save_split(path, **arrays)
                 d = preds_io.load_split(path)
                 err = validate_e1(d)
                 assert not err, err
-            entry = res1["per_split"].setdefault(str(seed), {})
-            if fresh or fset not in entry:
-                entry[fset] = eval_centers(d, d["meta"]["centers"])
-                res1["splits_info"][str(seed)] = split_info(d)
-                preds_io.dump_json_atomic(res1, p1_path)
+            if fresh or str(s) not in res2["per_split"]:
+                res2["per_split"][str(s)] = {"feature_set": primary,
+                                             "centers": eval_centers(d, d["meta"]["phase2_centers"]),
+                                             "trace": trace_json(d)}
+                preds_io.dump_json_atomic(res2, p2_path)
                 if fresh:
-                    e = entry[fset]
-                    print(f"  giai đoạn 1, split {seed}, {fset}: RMSE "
+                    e, tj = res2["per_split"][str(s)]["centers"], res2["per_split"][str(s)]["trace"]
+                    print(f"  giai đoạn 2, split {s}: RMSE "
                           + " ".join(f"{c}={e[c]['all_rmse']:.3f}" for c in e)
-                          + f" ({time.time() - t0:.0f}s)", flush=True)
-            npz_sha.setdefault(str(seed), {})[f"p1_{fset}"] = preds_io.file_sha256(path)
-            return d
-
-        if args.phase in ("1", "all"):
-            for s in seeds:
-                for fs in features.FEATURE_SETS:
-                    ensure_phase1(s, fs)
-
-        # Cổng tập đặc trưng (hoặc --feature-set)
-        if args.feature_set:
-            primary, gate = args.feature_set, {"primary": args.feature_set, "override": True, "steps": []}
-        else:
-            missing = [(s, fs) for s in seeds for fs in [GATE_BASE] + GATE_CHAIN
-                       if fs not in res1["per_split"].get(str(s), {})]
-            if missing and args.phase == "2":
-                sys.exit(f"Cổng tập đặc trưng cần giai đoạn 1 cho {missing[:5]}...: chạy --phase 1 "
-                         "trước, hoặc cho --feature-set")
-            gate = feature_gate(res1["per_split"], seeds, bud) | {"override": False}
-            primary = gate["primary"]
-
-        fp2 = res2 = None
-        if args.phase in ("2", "all"):
-            fp2 = preds_io.fingerprint(base_cfg | {"phase": 2, "feature_set": primary, "phase1": fp1,
-                                                    "n_configs": bud.n_configs, "max_trees": bud.max_trees,
-                                                    "es_rounds": bud.es_rounds, "r8_bag": bud.r8_bag,
-                                                    "bag_max": bud.bag_max, "bag_sizes": list(bud.bag_sizes),
-                                                    "oof_source": OOF_SOURCE})
-            res2 = preds_io.load_partial(p2_path, fp2, {"per_split": {}}, on_mismatch=args.on_mismatch)
-            print(f"\nGiai đoạn 2 trên {primary} ({'--feature-set' if args.feature_set else 'cổng'}); "
-                  f"{bud.n_configs} cấu hình, tối đa {bud.max_trees} cây, dừng sớm {bud.es_rounds} vòng",
-                  flush=True)
-            for s in seeds:
-                p1d = ensure_phase1(s, primary)
-                path = preds_io.split_path(args.preds_dir, s)
-                d = preds_io.load_or_none(path, fp2, on_mismatch=args.on_mismatch)
-                fresh = d is None
-                if fresh:
-                    t0 = time.time()
-                    preds_io.save_split(path, **fit_phase2(F, s, primary, bud, par, threads, fp2, p1d, run_meta))
-                    d = preds_io.load_split(path)
-                    err = validate_e1(d)
-                    assert not err, err
-                if fresh or str(s) not in res2["per_split"]:
-                    res2["per_split"][str(s)] = {"feature_set": primary,
-                                                 "centers": eval_centers(d, d["meta"]["phase2_centers"]),
-                                                 "trace": trace_json(d)}
-                    preds_io.dump_json_atomic(res2, p2_path)
-                    if fresh:
-                        e, tj = res2["per_split"][str(s)]["centers"], res2["per_split"][str(s)]["trace"]
-                        print(f"  giai đoạn 2, split {s}: RMSE "
-                              + " ".join(f"{c}={e[c]['all_rmse']:.3f}" for c in e)
-                              + f"; cấu hình {tj['rs_tuned_index']}, {tj['n_capped']} chạm trần "
-                              f"({time.time() - t0:.0f}s)", flush=True)
-                npz_sha.setdefault(str(s), {})["merged"] = preds_io.file_sha256(path)
-        elif os.path.exists(p2_path):
-            # Chỉ chạy giai đoạn 1: giữ kết quả giai đoạn 2 cũ nếu cùng tập chính và cùng mã
-            fp2 = preds_io.fingerprint(base_cfg | {"phase": 2, "feature_set": primary, "phase1": fp1,
-                                                    "n_configs": bud.n_configs, "max_trees": bud.max_trees,
-                                                    "es_rounds": bud.es_rounds, "r8_bag": bud.r8_bag,
-                                                    "bag_max": bud.bag_max, "bag_sizes": list(bud.bag_sizes),
-                                                    "oof_source": OOF_SOURCE})
-            old = preds_io.load_json(p2_path)
-            res2 = old if (old.get("meta") or {}).get("fingerprint") == fp2 else None
+                          + f"; cấu hình {tj['rs_tuned_index']}, {tj['n_capped']} chạm trần "
+                          f"({time.time() - t0:.0f}s)", flush=True)
+            npz_sha.setdefault(str(s), {})["merged"] = preds_io.file_sha256(path)
+    elif os.path.exists(p2_path):
+        # Chỉ chạy giai đoạn 1: giữ kết quả giai đoạn 2 cũ nếu cùng tập chính và cùng mã
+        fp2 = preds_io.fingerprint(base_cfg | {"phase": 2, "feature_set": primary, "phase1": fp1,
+                                                "n_configs": bud.n_configs, "max_trees": bud.max_trees,
+                                                "es_rounds": bud.es_rounds, "r8_bag": bud.r8_bag,
+                                                "bag_max": bud.bag_max, "bag_sizes": list(bud.bag_sizes),
+                                                "oof_source": OOF_SOURCE})
+        old = preds_io.load_json(p2_path)
+        res2 = old if (old.get("meta") or {}).get("fingerprint") == fp2 else None
 
     # JSON cuối: gộp hai giai đoạn, per_split[seed][tập][trung tâm]
     per = {s: {fs: dict(c) for fs, c in e.items()} for s, e in res1["per_split"].items()}

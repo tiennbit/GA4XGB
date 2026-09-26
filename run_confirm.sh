@@ -12,6 +12,10 @@ set -euo pipefail
 cd "$(dirname "$0")"
 mkdir -p results_cost
 export RUN_STAMP="${RUN_STAMP:-}"
+# Thư mục tạm của joblib trên đĩa (còn ~80 GB), không ở /dev/shm (RAM, 7,9 GB): lượt
+# 25/9 hỏng vì mảng gửi sang tiến trình con tích luỹ làm đầy /dev/shm.
+export JOBLIB_TEMP_FOLDER="${JOBLIB_TEMP_FOLDER:-$PWD/.joblib_tmp}"
+mkdir -p "$JOBLIB_TEMP_FOLDER"
 step() {
   local name="$1"; shift
   echo "[$(date -Is)] BẮT ĐẦU $name"

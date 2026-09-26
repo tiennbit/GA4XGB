@@ -46,3 +46,6 @@ preds/
 
 # ─── Dữ liệu công khai cho E11 (tải lại được, kiểm bằng SHA256SUMS) ─────────
 data_public/
+
+# Thư mục tạm của joblib khi chạy trên server
+.joblib_tmp/
