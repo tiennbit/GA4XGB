@@ -5,6 +5,7 @@ Bản thảo v2 giữ 8 hình ở thân bài (fig01..fig08) và đưa 4 hình sa
 sung (figS1..figS4, đánh số theo lần trích đầu tiên trong thân bài):
   S1 = kích thước bag và thời gian (trước là Hình 11), S2 = biên mô tả (Hình 9),
   S3 = biểu đồ Murphy (Hình 10), S4 = mô phỏng (Hình 12).
+Bản v3 thêm S5 = lặp lại trên dữ liệu công khai (E11), đọc results_bench/paper_numbers_bench.json.
 
 Chạy:  python3 src/figures_cost.py              (mọi hình)
        python3 src/figures_cost.py --fig 4 5 S1 (một số hình)
@@ -758,8 +759,78 @@ def figS4():
     save(fig, "figS4_simulation")
 
 
+# ---------------------------------------------------------------------------
+# Hình S5: lặp lại trên dữ liệu công khai (E11)
+# ---------------------------------------------------------------------------
+BENCH_ROWS = [("hsa", "HSA (bag20)"), ("california_housing", "california_housing"),
+              ("diamonds", "diamonds"), ("kings_county", "kings_county"),
+              ("cps88wages", "cps88wages"), ("saber", "Saber 11 to Saber Pro"),
+              ("student_performance_por", "student_perf._por (not gated)")]
+
+
+def figS5():
+    """Bốn phép so ở K = 3, tính bằng % cost_3(R1, trung tâm chính) của từng bộ.
+
+    Vì sao phần trăm mà không phải điểm: giá nhà, đô la và điểm Saber không cùng thang,
+    và SESOI 0,10 là điểm HSA nên không vẽ dải SESOI ở đây. Số đọc từ
+    results_bench/paper_numbers_bench.json (E11) và results_cost/paper_numbers_cost.json
+    (HSA), cả hai đã chứa CI Nadeau-Bengio; hình chỉ đổi đơn vị, không tính lại thống kê.
+    """
+    with open("results_bench/paper_numbers_bench.json", encoding="utf-8") as f:
+        B = json.load(f)
+    with open(os.path.join(RES, "paper_numbers_cost.json"), encoding="utf-8") as f:
+        H = json.load(f)
+    hbase = H["e1.center.F_dt-cn.bag20.cost3.R1"]
+    cols = [("C1", "c1", "C1 = R1 − R8*"), ("C2", "c2", "C2 = R1 − R5"),
+            ("C3", "c3", "C3 = rs_tuned − bag"), ("e4.c_minus_a", "e4.K3.c_minus_a", "E4: (c) − (a)")]
+    fig, axes = plt.subplots(1, 4, figsize=(W2, 2.3), sharey=True)
+    ys = np.arange(len(BENCH_ROWS))[::-1]
+    for j, (bk, hk, title) in enumerate(cols):
+        ax = axes[j]
+        pts = []
+        for (ds, lab), y in zip(BENCH_ROWS, ys):
+            if ds == "hsa":
+                base, m, lo, hi = hbase, H[f"{hk}.mean"], H[f"{hk}.ci_lo"], H[f"{hk}.ci_hi"]
+                st = dict(color=C["black"], marker="s", mfc=C["black"])
+            else:
+                k = f"bench.{ds}.{bk}"
+                base = B[f"bench.{ds}.cost3_R1_bag10"]
+                m, lo, hi = B[f"{k}.mean"], B[f"{k}.ci_lo"], B[f"{k}.ci_hi"]
+                core = B[f"bench.{ds}.core"]
+                st = dict(color=C["blue"] if core else C["grey"], marker="o",
+                          mfc=C["blue"] if core else "white")
+            m, lo, hi = (100 * v / base for v in (m, lo, hi))
+            pts.append((ds, y, m, lo, hi, st))
+        # Trục theo các bộ trong cổng và HSA: khoảng tin cậy của bộ phụ (649 dòng) rộng
+        # gấp vài lần và nếu để nó quyết định trục thì mọi bộ khác dồn vào một điểm.
+        # Phần vượt trục được cắt và đánh dấu bằng tam giác ở mép.
+        core_ext = [v for ds, _, m, lo, hi, _ in pts
+                    if ds == "hsa" or B[f"bench.{ds}.core"] for v in (lo, hi)]
+        pad = 0.12 * (max(core_ext) - min(core_ext))
+        xl, xr = min(min(core_ext), 0) - pad, max(max(core_ext), 0) + pad
+        for ds, y, m, lo, hi, st in pts:
+            clo, chi = max(lo, xl), min(hi, xr)
+            for edge, cut in ((xl, lo < xl), (xr, hi > xr)):
+                if cut:
+                    ax.plot([edge], [y], marker="<" if edge == xl else ">", color=st["color"], ms=3.5)
+            ax.errorbar([m], [y], xerr=[[m - clo], [chi - m]], color=st["color"], marker=st["marker"],
+                        mfc=st["mfc"], ms=3.5, capsize=0, lw=0.8, ls="none")
+        ax.set_xlim(xl, xr)
+        ax.axvline(0, color=C["black"], lw=0.6)
+        ax.axhline(ys[0] - 0.5, color=C["lgrey"], lw=0.6)
+        ax.set_xlabel("% of cost$_3$(R1, center)")
+        ax.text(0.5, 1.02, title, transform=ax.transAxes, ha="center", va="bottom", fontsize=FS_MIN)
+        ax.grid(axis="y", visible=False)
+        panel(ax, "abcd"[j], x=-0.08 if j else -0.95, y=1.02)
+    axes[0].set_yticks(ys)
+    axes[0].set_yticklabels([lab for _, lab in BENCH_ROWS])
+    fig.tight_layout(w_pad=0.6)
+    save(fig, "figS5_replication")
+
+
 FIGS = {"1": fig1, "2": fig2, "3": fig3, "4": fig4, "5": fig5, "6": fig6, "7": fig7, "8": fig8,
-        "S1": figS1, "S2": figS2, "S3": figS3, "S4": figS4}
+        "S1": figS1, "S2": figS2, "S3": figS3, "S4": figS4,
+        "S5": figS5}
 
 
 def main():
